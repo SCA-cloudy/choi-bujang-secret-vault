@@ -42,6 +42,7 @@ async function anonymousApiResult(app, path, init = {}) {
     if (Array.isArray(data)) noteCount = data.length;
     else if (Array.isArray(data?.notes)) noteCount = data.notes.length;
     if (typeof data?.error === 'string' && /^[A-Z_]{1,40}$/u.test(data.error)) errorCode = data.error;
+    else if (typeof data?.code === 'string' && /^[A-Z0-9]{1,12}$/u.test(data.code)) errorCode = data.code;
   } catch {
     // JSON이 아니면 오류 문구 없음, 메모 0건으로 기록한다.
   }
@@ -49,13 +50,13 @@ async function anonymousApiResult(app, path, init = {}) {
 }
 
 export async function runAttackChecks(config) {
-  if (![1, 2, 3, 4].includes(config.step)) {
+  if (![1, 2, 3, 4, 5].includes(config.step)) {
     throw new Error('이 단계의 공격 점검을 src/attack-check.mjs에 구현해 주세요.');
   }
   const app = checkedAppUrl(config);
   if (typeof config.sampleMarker !== 'string' || !config.sampleMarker) throw new Error('가상 메모의 확인 표시를 넣어 주세요.');
 
-  if (config.step === 4) {
+  if (config.step === 4 || config.step === 5) {
     // 이 점검은 로그인 정보 없이 보내는 요청만 한다. 두 번째 계정(B)이 A의 메모를 읽거나 고치는 시험은
     // 로그인이 필요해 여기서 하지 않으며, 화면과 콘솔로 직접 확인한 결과를 README에 따로 적는다.
     // 수정·삭제 점검은 실제로 없는 가짜 메모 번호로만 보내 어떤 메모도 바뀌지 않는다.
@@ -70,7 +71,7 @@ export async function runAttackChecks(config) {
     });
     const remove = await anonymousApiResult(app, `/api/notes/${missingId}`, { method: 'DELETE' });
     const seen = result => `비로그인 요청에서 HTTP ${result.status}, 오류 문구 ${result.errorCode}, 가상 메모 ${result.noteCount}건이 보임`;
-    return [
+    const results = [
       { attackId: 'static_data_json_read',
         expected: '공개 /data.json에는 가상 메모가 없어야 함 (404 또는 0건)',
         observed: `비로그인 요청에서 HTTP ${staticData.status}, 가상 메모 ${staticData.noteCount}건이 보임` },
@@ -87,6 +88,26 @@ export async function runAttackChecks(config) {
         expected: '로그인 없이 메모 삭제를 요청하면 401 또는 403으로 거부 (없는 가짜 번호로 시험)',
         observed: seen(remove) },
     ];
+    if (config.step === 4) return results;
+
+    // 5단계: 서버 함수를 거치지 않고 데이터 원본 주소를 로그인 없이 직접 읽어 본다.
+    // 공개 키는 저장소에 없다. 학생이 셸에 SUPABASE_PUBLISHABLE_KEY를 넣어 둔 때만 그 키를 붙여 보내고,
+    // 없으면 키 없이 보낸다. 어느 쪽이든 실제로 보낸 방식을 observed에 적고 키 값은 적지 않는다.
+    let original;
+    try {
+      original = new URL(config.originalApiUrl);
+    } catch {
+      throw new Error('aleph.config.json의 originalApiUrl에 데이터 원본 HTTPS 주소를 넣어 주세요.');
+    }
+    if (original.protocol !== 'https:' || original.username || original.password || original.search || original.hash) {
+      throw new Error('aleph.config.json의 originalApiUrl에 데이터 원본 HTTPS 주소를 넣어 주세요.');
+    }
+    const publicKey = typeof process.env.SUPABASE_PUBLISHABLE_KEY === 'string' ? process.env.SUPABASE_PUBLISHABLE_KEY.trim() : '';
+    const direct = await anonymousApiResult(app, `${original.href}?select=id`, publicKey ? { headers: { apikey: publicKey } } : {});
+    results.push({ attackId: 'original_api_direct_read',
+      expected: '서버 함수를 거치지 않고 원본 주소를 로그인 없이 직접 읽으면 401 또는 403으로 거부, 메모 0건',
+      observed: `${publicKey ? '공개 키를 붙여' : '키 없이'} 보낸 요청에서 HTTP ${direct.status}, 오류 문구 ${direct.errorCode}, 가상 메모 ${direct.noteCount}건이 보임` });
+    return results;
   }
 
   if (config.step === 3) {

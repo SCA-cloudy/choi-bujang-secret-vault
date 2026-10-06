@@ -33,7 +33,7 @@
 </head>
 <body>
   <main>
-    <div class="eyebrow">BYTE BACK · 4단계 내 자료만 보이게 하기</div>
+    <div class="eyebrow">BYTE BACK · 5단계 자료 요청을 서버 한곳으로</div>
     <h1>점령된 자료실</h1>
     <p>아래 기록은 모두 실습을 위해 만든 가상 자료입니다.</p>
     <div class="notice">로그인한 사람만 자료를 볼 수 있고, 로그인해도 내가 쓴 자료만 보입니다. 다른 사람의 자료는 읽거나 고치거나 지울 수 없습니다.</div>
@@ -63,10 +63,9 @@
     <ul id="notes" aria-live="polite"><li>로그인하면 가상 자료가 보입니다.</li></ul>
   </main>
   <script type="module">
-    // 공식 Supabase SDK로 로그인한다. 아래 주소와 공개용(publishable) 키는 화면에 있어도 되는 값이다.
-    // 서버 전용 비밀키는 절대 이 파일에 넣지 않는다.
-    const SUPABASE_URL = 'https://pznzzrrveegqazhdrzkc.supabase.co';
-    const SUPABASE_PUBLISHABLE_KEY = 'sb_publishable_19si3Ptgf--ezUKk7k4ZrQ_NuTcuDSk';
+    // 5단계: 이 화면은 Supabase를 직접 부르지 않는다. 로그인·연장·로그아웃과 메모 요청은 모두
+    // 우리 서버 함수(/api/auth/*, /api/notes)로만 보낸다. 키와 비밀번호는 이 파일에 두지 않는다.
+    const SESSION_KEY = 'byteback-session';
     const form = document.querySelector('#login-form');
     const emailInput = document.querySelector('#login-email');
     const passwordInput = document.querySelector('#login-password');
@@ -82,7 +81,7 @@
     const saveButton = document.querySelector('#note-save');
     const cancelButton = document.querySelector('#note-cancel');
     const noteError = document.querySelector('#note-error');
-    let session = null;
+    let session = loadSession();
     let editingId = null;
     let loadTurn = 0;
 
@@ -99,11 +98,70 @@
       return '처리하지 못했습니다. 잠시 뒤에 다시 해 주세요.';
     }
 
-    // 로그인한 사람의 토큰을 서버에 함께 보낸다. 토큰이 없으면 요청하지 않는다.
-    async function callApi(method, path, payload) {
-      const token = session?.access_token;
-      if (!token) return { ok: false, status: 401 };
-      const headers = { Authorization: `Bearer ${token}` };
+    function loadSession() {
+      try {
+        const value = JSON.parse(localStorage.getItem(SESSION_KEY));
+        if (value && typeof value.accessToken === 'string' && typeof value.refreshToken === 'string'
+            && Number.isFinite(value.expiresAt)) return value;
+      } catch {
+        // 저장소를 못 읽으면 로그인하지 않은 상태로 시작한다.
+      }
+      return null;
+    }
+
+    function saveSession(next) {
+      session = next;
+      try {
+        if (next) localStorage.setItem(SESSION_KEY, JSON.stringify(next));
+        else localStorage.removeItem(SESSION_KEY);
+      } catch {
+        // 저장하지 못해도 이 화면을 닫기 전까지는 로그인 상태를 쓴다.
+      }
+    }
+
+    // 로그인·연장·로그아웃 요청을 우리 서버 함수로 보낸다.
+    async function postAuth(path, payload, token) {
+      const headers = { 'Content-Type': 'application/json' };
+      if (token) headers.Authorization = `Bearer ${token}`;
+      try {
+        const response = await fetch(path, {
+          method: 'POST', cache: 'no-store', headers, body: JSON.stringify(payload ?? {}),
+        });
+        const data = await response.json().catch(() => null);
+        return { ok: response.ok, status: response.status, data };
+      } catch {
+        return { ok: false, status: 0, data: null };
+      }
+    }
+
+    function validSession(data) {
+      return data && typeof data.accessToken === 'string' && typeof data.refreshToken === 'string'
+        && Number.isFinite(data.expiresAt);
+    }
+
+    // 출입증이 곧 끝나면 서버에서 새로 받는다. 서버가 세션이 끝났다고 하면 로그아웃 상태로 돌린다.
+    async function refreshSession() {
+      if (!session) return false;
+      const result = await postAuth('/api/auth/refresh', { refreshToken: session.refreshToken });
+      if (result.ok && validSession(result.data)) {
+        saveSession(result.data);
+        return true;
+      }
+      if (result.status === 401) {
+        saveSession(null);
+        showSignedIn();
+      }
+      return false;
+    }
+
+    // 로그인한 사람의 출입증을 서버에 함께 보낸다. 출입증이 없으면 요청하지 않는다.
+    async function callApi(method, path, payload, retried = false) {
+      if (!session) return { ok: false, status: 401 };
+      if (session.expiresAt * 1000 - Date.now() < 60000) {
+        const renewed = await refreshSession();
+        if (!renewed && (!session || session.expiresAt * 1000 <= Date.now())) return { ok: false, status: 401 };
+      }
+      const headers = { Authorization: `Bearer ${session.accessToken}` };
       const options = { method, cache: 'no-store', headers };
       if (payload) {
         headers['Content-Type'] = 'application/json';
@@ -111,6 +169,9 @@
       }
       try {
         const response = await fetch(path, options);
+        if (response.status === 401 && !retried && await refreshSession()) {
+          return callApi(method, path, payload, true);
+        }
         const data = await response.json().catch(() => null);
         return { ok: response.ok, status: response.status, data };
       } catch {
@@ -164,7 +225,7 @@
 
     async function loadNotes() {
       const turn = ++loadTurn;
-      if (!session?.access_token) {
+      if (!session?.accessToken) {
         showMessage('로그인하면 가상 자료가 보입니다.');
         return;
       }
@@ -189,9 +250,9 @@
     }
 
     function showSignedIn() {
-      const signedIn = Boolean(session?.user);
+      const signedIn = Boolean(session?.accessToken);
       stateText.textContent = signedIn
-        ? `로그인됨: ${session.user.email ?? '계정'}`
+        ? `로그인됨: ${session.email || '계정'}`
         : '로그인하지 않은 상태입니다.';
       form.hidden = signedIn;
       logout.hidden = !signedIn;
@@ -202,11 +263,11 @@
       }
     }
 
-    function reasonFor(error) {
-      const code = error?.code ?? '';
-      if (code === 'invalid_credentials') return '이메일이나 비밀번호가 맞지 않습니다.';
-      if (code === 'email_not_confirmed') return '이메일 인증이 아직 끝나지 않은 계정입니다.';
-      if (code === 'over_request_rate_limit' || error?.status === 429) return '시도가 너무 많습니다. 잠시 뒤에 다시 해 주세요.';
+    function reasonFor(result) {
+      const code = result?.data?.error ?? '';
+      if (code === 'INVALID_CREDENTIALS' || code === 'INVALID_LOGIN') return '이메일이나 비밀번호가 맞지 않습니다.';
+      if (code === 'EMAIL_NOT_CONFIRMED') return '이메일 인증이 아직 끝나지 않은 계정입니다.';
+      if (code === 'TOO_MANY_ATTEMPTS' || result?.status === 429) return '시도가 너무 많습니다. 잠시 뒤에 다시 해 주세요.';
       return '로그인하지 못했습니다. 잠시 뒤에 다시 해 주세요.';
     }
 
@@ -232,43 +293,40 @@
       noteError.textContent = '';
     });
 
-    try {
-      const { createClient } = await import('https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.117.2/+esm');
-      const supabase = createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY);
-
-      const { data } = await supabase.auth.getSession();
-      session = data.session;
-      showSignedIn();
-      loadNotes();
-      supabase.auth.onAuthStateChange((_event, nextSession) => {
-        session = nextSession;
+    form.addEventListener('submit', async event => {
+      event.preventDefault();
+      errorText.textContent = '';
+      submit.disabled = true;
+      const result = await postAuth('/api/auth/login', {
+        email: emailInput.value.trim(),
+        password: passwordInput.value,
+      });
+      passwordInput.value = '';
+      submit.disabled = false;
+      if (result.ok && validSession(result.data)) {
+        saveSession(result.data);
         showSignedIn();
         loadNotes();
-      });
+      } else {
+        errorText.textContent = reasonFor(result);
+      }
+    });
 
-      form.addEventListener('submit', async event => {
-        event.preventDefault();
-        errorText.textContent = '';
-        submit.disabled = true;
-        const { error } = await supabase.auth.signInWithPassword({
-          email: emailInput.value.trim(),
-          password: passwordInput.value,
-        });
-        passwordInput.value = '';
-        submit.disabled = false;
-        if (error) errorText.textContent = reasonFor(error);
-      });
+    logout.addEventListener('click', async () => {
+      errorText.textContent = '';
+      const token = session?.accessToken;
+      const result = token ? await postAuth('/api/auth/logout', {}, token) : { ok: true };
+      // 서버가 응답하지 못해도 이 기기의 로그인 정보는 지운다.
+      saveSession(null);
+      showSignedIn();
+      loadNotes();
+      if (!result.ok && result.status !== 401) {
+        errorText.textContent = '서버에서 로그아웃을 끝내지 못했습니다. 이 기기에서는 로그아웃했습니다.';
+      }
+    });
 
-      logout.addEventListener('click', async () => {
-        errorText.textContent = '';
-        const { error } = await supabase.auth.signOut();
-        if (error) errorText.textContent = '로그아웃하지 못했습니다. 잠시 뒤에 다시 해 주세요.';
-      });
-    } catch {
-      form.hidden = true;
-      errorText.textContent = '로그인 기능을 불러오지 못했습니다. 새로고침해 주세요.';
-      showMessage('로그인 기능을 불러오지 못해 자료를 볼 수 없습니다.');
-    }
+    showSignedIn();
+    loadNotes();
   </script>
 </body>
 </html>

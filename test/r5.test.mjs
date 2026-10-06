@@ -160,3 +160,51 @@ test('step 3 attack check records rejected anonymous list and create requests wi
     globalThis.fetch = originalFetch;
   }
 });
+
+test('build identity adds allowedRoutes only when the config lists them', () => {
+  const routes = ['GET /api/notes', 'POST /api/notes'];
+  assert.deepEqual(deploymentIdentity(env, { ...config, step: 5, allowedRoutes: routes }).allowedRoutes, routes);
+  for (const bad of [undefined, null, [], [''], [1], 'GET /api/notes']) {
+    assert.ok(!('allowedRoutes' in deploymentIdentity(env, { ...config, step: 5, allowedRoutes: bad })));
+  }
+});
+
+test('step 5 attack check also reads the original API anonymously and never records the key', async () => {
+  const originalFetch = globalThis.fetch;
+  const originalKey = process.env.SUPABASE_PUBLISHABLE_KEY;
+  const requested = [];
+  const step5 = { ...config, step: 5, originalApiUrl: 'https://project-ref.supabase.co/rest/v1/notes' };
+  try {
+    globalThis.fetch = async (url, init) => {
+      requested.push(`${init.method ?? 'GET'} ${String(url)}`);
+      assert.equal(init.redirect, 'error');
+      assert.ok(!init.headers?.Authorization && !init.headers?.authorization);
+      if (String(url).endsWith('/data.json')) return new Response('Not found', { status: 404 });
+      if (String(url).startsWith('https://project-ref.supabase.co/')) {
+        return new Response(JSON.stringify({ code: '42501', message: 'permission denied for table notes' }), { status: 401 });
+      }
+      return new Response(JSON.stringify({ error: 'LOGIN_REQUIRED' }), { status: 401 });
+    };
+    delete process.env.SUPABASE_PUBLISHABLE_KEY;
+    const results = await runAttackChecks(step5);
+    assert.equal(requested.at(-1), 'GET https://project-ref.supabase.co/rest/v1/notes?select=id');
+    assert.equal(results.length, 6);
+    assert.equal(results[5].attackId, 'original_api_direct_read');
+    assert.match(results[5].observed, /키 없이 보낸 요청에서 HTTP 401, 오류 문구 42501, 가상 메모 0건/u);
+
+    process.env.SUPABASE_PUBLISHABLE_KEY = 'sb_publishable_test_value';
+    const withKey = await runAttackChecks(step5);
+    assert.match(withKey[5].observed, /공개 키를 붙여 보낸 요청에서 HTTP 401/u);
+    assert.ok(!JSON.stringify(withKey).includes('sb_publishable_test_value'));
+    for (const item of withKey) {
+      assert.deepEqual(Object.keys(item).sort(), ['attackId', 'expected', 'observed']);
+      assert.ok(item.expected.length <= 300 && item.observed.length <= 300);
+    }
+    await assert.rejects(runAttackChecks({ ...step5, originalApiUrl: null }));
+    await assert.rejects(runAttackChecks({ ...step5, originalApiUrl: 'http://project-ref.supabase.co/rest/v1/notes' }));
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (originalKey === undefined) delete process.env.SUPABASE_PUBLISHABLE_KEY;
+    else process.env.SUPABASE_PUBLISHABLE_KEY = originalKey;
+  }
+});
