@@ -63,7 +63,7 @@
     <ul id="notes" aria-live="polite"><li>로그인하면 가상 자료가 보입니다.</li></ul>
   </main>
   <script type="module">
-    // 5단계: 이 화면은 Supabase를 직접 부르지 않는다. 로그인·연장·로그아웃과 메모 요청은 모두
+    // 5단계: 이 화면은 자료 저장소나 로그인 서버를 직접 부르지 않는다. 로그인·연장·로그아웃과 메모 요청은 모두
     // 우리 서버 함수(/api/auth/*, /api/notes)로만 보낸다. 키와 비밀번호는 이 파일에 두지 않는다.
     const SESSION_KEY = 'byteback-session';
     const form = document.querySelector('#login-form');
