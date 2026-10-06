@@ -15,15 +15,19 @@
     ul { list-style: none; display: grid; gap: 12px; padding: 0; }
     li { border: 1px solid #51667c; border-radius: 14px; padding: 17px 19px; background: #1a2a3d; }
     strong { display: block; font-size: 18px; margin-bottom: 5px; }
-    li span { color: #bfd0e5; }
-    .login { margin: 22px 0; padding: 18px; border: 1px solid #51667c; border-radius: 14px; background: #162538; }
-    .login h2 { margin: 0 0 12px; font-size: 18px; }
-    .login form { display: grid; gap: 10px; }
-    .login input { padding: 11px 12px; border: 1px solid #51667c; border-radius: 10px; background: #0d1623; color: #ecf4ff; font-size: 16px; }
-    .login button { padding: 11px 14px; border: 0; border-radius: 10px; background: #5fd3c6; color: #06222a; font-size: 16px; font-weight: 700; cursor: pointer; }
-    .login button:disabled { opacity: .6; cursor: wait; }
+    li span { color: #bfd0e5; white-space: pre-wrap; }
+    .login, .editor { margin: 22px 0; padding: 18px; border: 1px solid #51667c; border-radius: 14px; background: #162538; }
+    .login h2, .editor h2 { margin: 0 0 12px; font-size: 18px; }
+    .login form, .editor form { display: grid; gap: 10px; }
+    .login input, .editor input, .editor textarea { padding: 11px 12px; border: 1px solid #51667c; border-radius: 10px; background: #0d1623; color: #ecf4ff; font-size: 16px; font-family: inherit; }
+    .login button, .editor button, .actions button { padding: 11px 14px; border: 0; border-radius: 10px; background: #5fd3c6; color: #06222a; font-size: 16px; font-weight: 700; cursor: pointer; }
+    .editor .row, .actions { display: flex; gap: 8px; flex-wrap: wrap; }
+    .editor .secondary, .actions button { background: #2c4259; color: #ecf4ff; }
+    .actions { margin-top: 12px; }
+    .actions button { padding: 8px 12px; font-size: 14px; }
+    .login button:disabled, .editor button:disabled { opacity: .6; cursor: wait; }
     .login .state { margin: 0 0 12px; font-size: 16px; }
-    .login .error { margin: 12px 0 0; font-size: 15px; color: #ffb4c0; min-height: 1.2em; }
+    .login .error, .editor .error { margin: 12px 0 0; font-size: 15px; color: #ffb4c0; min-height: 1.2em; }
     [hidden] { display: none !important; }
   </style>
 </head>
@@ -32,7 +36,7 @@
     <div class="eyebrow">BYTE BACK · 3단계 로그인 확인</div>
     <h1>점령된 자료실</h1>
     <p>지금은 보호 장치가 없는 상태입니다. 아래 기록은 모두 실습을 위해 만든 가상 자료입니다.</p>
-    <div class="notice">로그인한 사람만 자료를 볼 수 있습니다. 로그인한 사람끼리 서로의 자료를 볼 수 있는지는 다음 단계에서 막습니다.</div>
+    <div class="notice">로그인한 사람만 자료를 볼 수 있습니다. 로그인한 사람끼리 서로의 자료를 보거나 고칠 수 있는지는 다음 단계에서 막습니다.</div>
     <section class="login" aria-labelledby="login-title">
       <h2 id="login-title">로그인</h2>
       <p class="state" id="login-state">로그인하지 않은 상태입니다.</p>
@@ -44,10 +48,22 @@
       <button id="logout-button" type="button" hidden>로그아웃</button>
       <p class="error" id="login-error" role="alert"></p>
     </section>
+    <section class="editor" id="editor" aria-labelledby="editor-title" hidden>
+      <h2 id="editor-title">가상 메모 쓰기</h2>
+      <form id="note-form">
+        <input id="note-title" maxlength="200" placeholder="제목" required>
+        <textarea id="note-body" maxlength="5000" rows="3" placeholder="내용"></textarea>
+        <div class="row">
+          <button id="note-save" type="submit">추가</button>
+          <button id="note-cancel" class="secondary" type="button" hidden>수정 취소</button>
+        </div>
+      </form>
+      <p class="error" id="note-error" role="alert"></p>
+    </section>
     <ul id="notes" aria-live="polite"><li>로그인하면 가상 자료가 보입니다.</li></ul>
   </main>
   <script type="module">
-    // 로그인 화면: 공식 Supabase SDK만 쓴다. 아래 주소와 공개용(publishable) 키는 화면에 있어도 되는 값이다.
+    // 공식 Supabase SDK로 로그인한다. 아래 주소와 공개용(publishable) 키는 화면에 있어도 되는 값이다.
     // 서버 전용 비밀키(sb_secret_...)는 절대 이 파일에 넣지 않는다.
     const SUPABASE_URL = 'https://pznzzrrveegqazhdrzkc.supabase.co';
     const SUPABASE_PUBLISHABLE_KEY = 'sb_publishable_19si3Ptgf--ezUKk7k4ZrQ_NuTcuDSk';
@@ -59,6 +75,15 @@
     const stateText = document.querySelector('#login-state');
     const errorText = document.querySelector('#login-error');
     const list = document.querySelector('#notes');
+    const editor = document.querySelector('#editor');
+    const noteForm = document.querySelector('#note-form');
+    const titleInput = document.querySelector('#note-title');
+    const bodyInput = document.querySelector('#note-body');
+    const saveButton = document.querySelector('#note-save');
+    const cancelButton = document.querySelector('#note-cancel');
+    const noteError = document.querySelector('#note-error');
+    let session = null;
+    let editingId = null;
     let loadTurn = 0;
 
     function showMessage(text) {
@@ -67,55 +92,114 @@
       list.replaceChildren(item);
     }
 
-    // 로그인한 사람의 토큰을 서버에 함께 보내 자료를 불러온다. 토큰이 없으면 요청하지 않는다.
-    async function loadNotes(session) {
-      const turn = ++loadTurn;
+    function messageFor(status) {
+      if (status === 401) return '로그인을 확인하지 못했습니다. 다시 로그인해 주세요.';
+      if (status === 404) return '이미 없는 메모입니다.';
+      if (status === 400) return '제목은 1~200자, 내용은 5000자까지 쓸 수 있습니다.';
+      return '처리하지 못했습니다. 잠시 뒤에 다시 해 주세요.';
+    }
+
+    // 로그인한 사람의 토큰을 서버에 함께 보낸다. 토큰이 없으면 요청하지 않는다.
+    async function callApi(method, path, payload) {
       const token = session?.access_token;
-      if (!token) {
-        showMessage('로그인하면 가상 자료가 보입니다.');
-        return;
+      if (!token) return { ok: false, status: 401 };
+      const headers = { Authorization: `Bearer ${token}` };
+      const options = { method, cache: 'no-store', headers };
+      if (payload) {
+        headers['Content-Type'] = 'application/json';
+        options.body = JSON.stringify(payload);
       }
-      showMessage('가상 자료를 불러오는 중입니다.');
-      let message = null;
-      let notes = null;
       try {
-        const response = await fetch('/api/notes', {
-          cache: 'no-store',
-          headers: { Authorization: `Bearer ${token}` },
-        });
-        if (response.status === 401) message = '로그인을 확인하지 못했습니다. 다시 로그인해 주세요.';
-        else if (!response.ok) message = '자료를 읽을 수 없습니다.';
-        else {
-          const data = await response.json();
-          if (Array.isArray(data.notes)) notes = data.notes;
-          else message = '자료 형식이 맞지 않습니다.';
-        }
+        const response = await fetch(path, options);
+        const data = await response.json().catch(() => null);
+        return { ok: response.ok, status: response.status, data };
       } catch {
-        message = '자료를 읽을 수 없습니다.';
+        return { ok: false, status: 0 };
       }
-      if (turn !== loadTurn) return;
-      if (notes === null) {
-        showMessage(message);
+    }
+
+    function resetEditor() {
+      editingId = null;
+      noteForm.reset();
+      saveButton.textContent = '추가';
+      cancelButton.hidden = true;
+    }
+
+    function startEdit(note) {
+      editingId = note.id;
+      titleInput.value = note.title;
+      bodyInput.value = note.body;
+      saveButton.textContent = '수정 저장';
+      cancelButton.hidden = false;
+      noteError.textContent = '';
+      titleInput.focus();
+    }
+
+    function renderNotes(notes) {
+      if (!notes.length) {
+        showMessage('아직 메모가 없습니다. 위에서 추가해 보세요.');
         return;
       }
       list.replaceChildren(...notes.map(note => {
         const item = document.createElement('li');
         const title = document.createElement('strong');
         const content = document.createElement('span');
+        const actions = document.createElement('div');
+        const edit = document.createElement('button');
+        const remove = document.createElement('button');
         title.textContent = note.title;
-        content.textContent = note.content;
-        item.append(title, content);
+        content.textContent = note.body;
+        actions.className = 'actions';
+        edit.type = 'button';
+        edit.textContent = '수정';
+        edit.addEventListener('click', () => startEdit(note));
+        remove.type = 'button';
+        remove.textContent = '삭제';
+        remove.addEventListener('click', () => removeNote(note));
+        actions.append(edit, remove);
+        item.append(title, content, actions);
         return item;
       }));
     }
 
-    function showSignedIn(session) {
+    async function loadNotes() {
+      const turn = ++loadTurn;
+      if (!session?.access_token) {
+        showMessage('로그인하면 가상 자료가 보입니다.');
+        return;
+      }
+      showMessage('가상 자료를 불러오는 중입니다.');
+      const result = await callApi('GET', '/api/notes');
+      if (turn !== loadTurn) return;
+      if (!result.ok) showMessage(messageFor(result.status));
+      else if (!Array.isArray(result.data)) showMessage('자료 형식이 맞지 않습니다.');
+      else renderNotes(result.data);
+    }
+
+    async function removeNote(note) {
+      if (!window.confirm('이 메모를 지울까요?')) return;
+      noteError.textContent = '';
+      const result = await callApi('DELETE', `/api/notes/${encodeURIComponent(note.id)}`);
+      if (!result.ok && result.status !== 404) {
+        noteError.textContent = messageFor(result.status);
+        return;
+      }
+      if (editingId === note.id) resetEditor();
+      await loadNotes();
+    }
+
+    function showSignedIn() {
       const signedIn = Boolean(session?.user);
       stateText.textContent = signedIn
         ? `로그인됨: ${session.user.email ?? '계정'}`
         : '로그인하지 않은 상태입니다.';
       form.hidden = signedIn;
       logout.hidden = !signedIn;
+      editor.hidden = !signedIn;
+      if (!signedIn) {
+        resetEditor();
+        noteError.textContent = '';
+      }
     }
 
     function reasonFor(error) {
@@ -126,16 +210,40 @@
       return '로그인하지 못했습니다. 잠시 뒤에 다시 해 주세요.';
     }
 
+    noteForm.addEventListener('submit', async event => {
+      event.preventDefault();
+      noteError.textContent = '';
+      saveButton.disabled = true;
+      const payload = { title: titleInput.value.trim(), body: bodyInput.value };
+      const result = editingId
+        ? await callApi('PUT', `/api/notes/${encodeURIComponent(editingId)}`, { id: editingId, ...payload })
+        : await callApi('POST', '/api/notes', payload);
+      saveButton.disabled = false;
+      if (!result.ok) {
+        noteError.textContent = messageFor(result.status);
+        return;
+      }
+      resetEditor();
+      await loadNotes();
+    });
+
+    cancelButton.addEventListener('click', () => {
+      resetEditor();
+      noteError.textContent = '';
+    });
+
     try {
       const { createClient } = await import('https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.117.2/+esm');
       const supabase = createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY);
 
       const { data } = await supabase.auth.getSession();
-      showSignedIn(data.session);
-      loadNotes(data.session);
-      supabase.auth.onAuthStateChange((_event, session) => {
-        showSignedIn(session);
-        loadNotes(session);
+      session = data.session;
+      showSignedIn();
+      loadNotes();
+      supabase.auth.onAuthStateChange((_event, nextSession) => {
+        session = nextSession;
+        showSignedIn();
+        loadNotes();
       });
 
       form.addEventListener('submit', async event => {
