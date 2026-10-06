@@ -93,6 +93,39 @@ test('step 2 attack check records static data.json and /api/notes without note b
   }
 });
 
+test('step 4 attack check sends only anonymous requests and records status codes without bodies', async () => {
+  const originalFetch = globalThis.fetch;
+  const requested = [];
+  try {
+    globalThis.fetch = async (url, init) => {
+      requested.push(`${init.method ?? 'GET'} ${new URL(String(url)).pathname}`);
+      assert.equal(init.redirect, 'error');
+      assert.ok(!init.headers?.Authorization && !init.headers?.authorization);
+      if (String(url).endsWith('/data.json')) return new Response('Not found', { status: 404 });
+      return new Response(JSON.stringify({ error: 'LOGIN_REQUIRED' }), {
+        status: 401, headers: { 'content-type': 'application/json' },
+      });
+    };
+    const results = await runAttackChecks({ ...config, step: 4 });
+    assert.deepEqual(requested, [
+      'GET /data.json', 'GET /api/notes', 'POST /api/notes',
+      'PUT /api/notes/00000000-0000-4000-8000-000000000000',
+      'DELETE /api/notes/00000000-0000-4000-8000-000000000000',
+    ]);
+    assert.deepEqual(results.map(item => item.attackId), [
+      'static_data_json_read', 'anonymous_notes_list_read', 'anonymous_note_create',
+      'anonymous_note_update', 'anonymous_note_delete',
+    ]);
+    for (const item of results.slice(2)) assert.match(item.observed, /HTTP 401, 오류 문구 LOGIN_REQUIRED/u);
+    for (const item of results) {
+      assert.deepEqual(Object.keys(item).sort(), ['attackId', 'expected', 'observed']);
+      assert.ok(item.expected.length <= 300 && item.observed.length <= 300);
+    }
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test('step 3 attack check records rejected anonymous list and create requests without bodies', async () => {
   const originalFetch = globalThis.fetch;
   const requested = [];

@@ -49,11 +49,45 @@ async function anonymousApiResult(app, path, init = {}) {
 }
 
 export async function runAttackChecks(config) {
-  if (![1, 2, 3].includes(config.step)) {
+  if (![1, 2, 3, 4].includes(config.step)) {
     throw new Error('이 단계의 공격 점검을 src/attack-check.mjs에 구현해 주세요.');
   }
   const app = checkedAppUrl(config);
   if (typeof config.sampleMarker !== 'string' || !config.sampleMarker) throw new Error('가상 메모의 확인 표시를 넣어 주세요.');
+
+  if (config.step === 4) {
+    // 이 점검은 로그인 정보 없이 보내는 요청만 한다. 두 번째 계정(B)이 A의 메모를 읽거나 고치는 시험은
+    // 로그인이 필요해 여기서 하지 않으며, 화면과 콘솔로 직접 확인한 결과를 README에 따로 적는다.
+    // 수정·삭제 점검은 실제로 없는 가짜 메모 번호로만 보내 어떤 메모도 바뀌지 않는다.
+    const missingId = '00000000-0000-4000-8000-000000000000';
+    const staticData = await anonymousNoteCount(app, '/data.json');
+    const list = await anonymousApiResult(app, '/api/notes');
+    const create = await anonymousApiResult(app, '/api/notes', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}',
+    });
+    const update = await anonymousApiResult(app, `/api/notes/${missingId}`, {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: '{}',
+    });
+    const remove = await anonymousApiResult(app, `/api/notes/${missingId}`, { method: 'DELETE' });
+    const seen = result => `비로그인 요청에서 HTTP ${result.status}, 오류 문구 ${result.errorCode}, 가상 메모 ${result.noteCount}건이 보임`;
+    return [
+      { attackId: 'static_data_json_read',
+        expected: '공개 /data.json에는 가상 메모가 없어야 함 (404 또는 0건)',
+        observed: `비로그인 요청에서 HTTP ${staticData.status}, 가상 메모 ${staticData.noteCount}건이 보임` },
+      { attackId: 'anonymous_notes_list_read',
+        expected: '로그인 없이 메모 목록을 요청하면 401 또는 403과 JSON 오류 문구, 메모 0건',
+        observed: seen(list) },
+      { attackId: 'anonymous_note_create',
+        expected: '로그인 없이 메모 추가를 요청하면 401 또는 403으로 거부',
+        observed: seen(create) },
+      { attackId: 'anonymous_note_update',
+        expected: '로그인 없이 메모 수정을 요청하면 401 또는 403으로 거부 (없는 가짜 번호로 시험)',
+        observed: seen(update) },
+      { attackId: 'anonymous_note_delete',
+        expected: '로그인 없이 메모 삭제를 요청하면 401 또는 403으로 거부 (없는 가짜 번호로 시험)',
+        observed: seen(remove) },
+    ];
+  }
 
   if (config.step === 3) {
     const staticData = await anonymousNoteCount(app, '/data.json');
