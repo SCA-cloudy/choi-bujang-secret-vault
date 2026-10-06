@@ -16,11 +16,15 @@
 
 `aleph.config.json`의 `repoUrl`과 `publicAppUrl`은 이전 제출 묶음 방식의 자리표시자입니다. 1단계에서는 학생이 편집하지 않습니다. 2단계 이후 코딩 도구가 필요한 설정과 보호 기능을 단계별로 작성합니다. `npm run bundle`과 `bundle-notes.json`도 1단계의 세 걸음에는 포함되지 않습니다.
 
-로컬에서 가상 화면만 확인할 때는 `npm run build -- --local`을 사용합니다. 로컬 실행은 Vercel 배포나 심판 접수를 증명하지 않습니다. 저장소의 `src/attack-check.mjs`는 실제 배포가 된 뒤 `/data.json`을 비로그인으로 요청해 공개 가상 메모의 확인 표시를 읽습니다.
+로컬에서 가상 화면만 확인할 때는 `npm run build -- --local`을 사용합니다. 로컬 실행은 Vercel 배포나 심판 접수를 증명하지 않습니다. 저장소의 `src/attack-check.mjs`는 실제 배포가 된 뒤 비로그인으로 요청해 결과를 기록합니다. 1단계는 `/data.json`의 확인 표시를 읽고, 2단계는 `/data.json`과 `/api/notes`의 상태 코드와 메모 개수만 기록하며 메모 본문은 기록하지 않습니다.
 
 ## 2단계 현재 상태
 
-가상 메모 네 건은 학습용 Supabase `notes` 테이블에 있고, 공개 `data.json`에는 메모가 없습니다(0건). 화면은 서버 함수 `/api/notes`(`api/notes.js`)가 읽어 온 메모를 보여 줍니다. 함수는 Vercel 환경변수 `SUPABASE_URL`과 서버 전용 `SUPABASE_SECRET_KEY`로 DB를 읽으며, 키는 브라우저 파일·응답·로그에 내보내지 않습니다. 환경변수를 바꾼 뒤에는 Vercel에서 다시 배포해야 반영됩니다.
+`aleph.config.json`의 `step`은 2이고 `repoUrl`, `publicAppUrl`은 실제 주소입니다. 2단계부터 빌드는 공개 `data.json`을 만들지 않으므로 배포된 `/data.json`은 404입니다. 빌드는 `public/aleph.json`(저장소·커밋·주소·단계)을 계속 만들고, `vercel.json`은 모든 응답에 `X-Content-Type-Options: nosniff`를 붙입니다.
+
+가상 메모 네 건은 학습용 Supabase `notes` 테이블에 있습니다. 화면은 서버 함수 `/api/notes`(`api/notes.js`)가 읽어 온 메모를 보여 줍니다. 함수는 Vercel 환경변수 `SUPABASE_URL`과 서버 전용 `SUPABASE_SECRET_KEY`로 DB를 읽으며, 키는 브라우저 파일·응답·로그에 내보내지 않습니다. 환경변수를 바꾼 뒤에는 Vercel에서 다시 배포해야 반영됩니다.
+
+**다시 실행하는 방법:** `npm run test:r5`(시험), `npm run build -- --local`(로컬 화면 확인이며 배포를 증명하지 않음), `npm run bundle`(제출 묶음. 변경을 커밋한 뒤, 사이트에 접속할 수 있는 컴퓨터에서 `bundle-notes.json`을 만들어 실행). 2단계 공격 점검(`static_data_json_read`, `anonymous_api_notes_read`)은 `npm run bundle`을 실행해야 기록되며, 실행 전에는 미실행입니다.
 
 **남은 약점:** `/api/notes`는 아직 공개 주소입니다. 로그인 없이 누구나 호출해 가상 메모를 읽을 수 있습니다. 3단계에서 접근을 막기 전까지는 가상 메모만 유지합니다. 옛 공개 커밋(`7f8a314`)과 옛 배포에는 메모가 남아 있으므로, 과거 노출이 해소됐다고 볼 수 없습니다.
 
@@ -32,7 +36,7 @@
 git fetch origin main
 git grep -n "실습용 [가]상" origin/main             # GitHub 최신 파일: 결과가 없어야 함
 git log --oneline -G"실습용 [가]상 과제" origin/main # 옛 커밋 기록: 남아 있는지 확인
-curl -s https://<배포 주소>/data.json              # "notes": [] 이어야 함
+curl -s https://<배포 주소>/data.json              # 2단계 저장점 이후에는 404, 그 전에는 "notes": []
 curl -s https://<배포 주소>/ | grep -c "실습용 [가]상" # 0 이어야 함
 ```
 

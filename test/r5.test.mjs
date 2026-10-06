@@ -55,3 +55,40 @@ test('first attack check reads public data.json without credentials', async () =
     globalThis.fetch = originalFetch;
   }
 });
+
+test('step 2 build identity keeps the config step and rejects an invalid step', () => {
+  assert.equal(deploymentIdentity(env, { ...config, step: 2 }).step, 2);
+  assert.throws(() => deploymentIdentity(env, { ...config, step: 0 }));
+  assert.throws(() => deploymentIdentity(env, { ...config, step: 13 }));
+  assert.throws(() => deploymentIdentity(env, { ...config, step: '2' }));
+});
+
+test('step 2 attack check records static data.json and /api/notes without note bodies', async () => {
+  const originalFetch = globalThis.fetch;
+  const requested = [];
+  try {
+    globalThis.fetch = async (url, init) => {
+      requested.push(String(url));
+      assert.equal(init.redirect, 'error');
+      if (String(url).endsWith('/data.json')) return new Response('Not found', { status: 404 });
+      return new Response(JSON.stringify({ notes: [{ title: 'a', content: 'secret-body' }, { title: 'b', content: 'c' }] }), {
+        status: 200, headers: { 'content-type': 'application/json' },
+      });
+    };
+    const results = await runAttackChecks({ ...config, step: 2 });
+    assert.deepEqual(requested, [
+      'https://student-defense.vercel.app/data.json',
+      'https://student-defense.vercel.app/api/notes',
+    ]);
+    assert.deepEqual(results.map(item => item.attackId), ['static_data_json_read', 'anonymous_api_notes_read']);
+    assert.match(results[0].observed, /HTTP 404, 가상 메모 0건/u);
+    assert.match(results[1].observed, /HTTP 200, 가상 메모 2건/u);
+    assert.ok(!JSON.stringify(results).includes('secret-body'));
+    for (const item of results) {
+      assert.deepEqual(Object.keys(item).sort(), ['attackId', 'expected', 'observed']);
+      assert.ok(item.expected.length <= 300 && item.observed.length <= 300);
+    }
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
