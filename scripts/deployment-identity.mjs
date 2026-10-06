@@ -33,5 +33,17 @@ export function deploymentIdentity(env, config) {
   if (Array.isArray(routes) && routes.length > 0 && routes.every(route => typeof route === 'string' && route)) {
     identity.allowedRoutes = [...routes];
   }
+  // 5단계: 심판은 배포된 /aleph.json에서 데이터 원본의 HTTPS 주소를 읽는다.
+  // 설정에 값이 있으면 쿼리·비밀값이 없는 https 주소인지 확인하고 넣는다. 잘못된 값이면 빌드를 멈춘다.
+  const original = config.originalApiUrl;
+  if (original !== null && original !== undefined) {
+    let parsed;
+    try { parsed = new URL(original); } catch { parsed = null; }
+    if (typeof original !== 'string' || !parsed || parsed.protocol !== 'https:'
+        || parsed.username || parsed.password || parsed.search || parsed.hash) {
+      throw new Error('aleph.config.json의 originalApiUrl은 쿼리 없는 https 주소여야 합니다.');
+    }
+    identity.originalApiUrl = original;
+  }
   return identity;
 }

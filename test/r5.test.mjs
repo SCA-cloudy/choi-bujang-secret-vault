@@ -208,3 +208,15 @@ test('step 5 attack check also reads the original API anonymously and never reco
     else process.env.SUPABASE_PUBLISHABLE_KEY = originalKey;
   }
 });
+
+test('build identity publishes originalApiUrl only when it is a clean https address', () => {
+  const url = 'https://project-ref.supabase.co/rest/v1/notes';
+  assert.equal(deploymentIdentity(env, { ...config, step: 5, originalApiUrl: url }).originalApiUrl, url);
+  for (const empty of [undefined, null]) {
+    assert.ok(!('originalApiUrl' in deploymentIdentity(env, { ...config, step: 5, originalApiUrl: empty })));
+  }
+  for (const bad of ['', 'not a url', 'http://project-ref.supabase.co/rest/v1/notes',
+    'https://project-ref.supabase.co/rest/v1/notes?apikey=x', 'https://user:pw@project-ref.supabase.co/rest/v1/notes', 5]) {
+    assert.throws(() => deploymentIdentity(env, { ...config, step: 5, originalApiUrl: bad }));
+  }
+});
