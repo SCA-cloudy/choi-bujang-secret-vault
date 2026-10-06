@@ -18,7 +18,36 @@
 
 로컬에서 가상 화면만 확인할 때는 `npm run build -- --local`을 사용합니다. 로컬 실행은 Vercel 배포나 심판 접수를 증명하지 않습니다. 저장소의 `src/attack-check.mjs`는 실제 배포가 된 뒤 비로그인으로 요청해 결과를 기록합니다. 1단계는 `/data.json`의 확인 표시를 읽고, 2·3단계는 비로그인 요청의 상태 코드·오류 문구·메모 개수만 기록하며 메모 본문은 기록하지 않습니다.
 
-## 4단계 현재 상태
+## 5단계 현재 상태
+
+`aleph.config.json`의 `step`은 5이고, `originalApiUrl`은 데이터 원본의 쿼리 없는 HTTPS 주소(`…supabase.co/rest/v1/notes`)입니다. `allowedRoutes`는 4단계와 같은 다섯 경로이며, 이제 배포된 `/aleph.json`에도 함께 나옵니다(`scripts/deployment-identity.mjs`). `judgeIssuer`와 `identityProvider`는 바꾸지 않았습니다.
+
+**브라우저는 서버 함수만 부릅니다.** 화면(`public/index.html`)에는 Supabase 주소, 공개용(publishable) 키, Supabase SDK가 없습니다. 로그인·로그인 연장·로그아웃은 `/api/auth/login`, `/api/auth/refresh`, `/api/auth/logout`(처리는 `src/auth-api.mjs`)을 거치고, 메모는 `/api/notes`만 부릅니다. 서버가 쓰는 공개용 키는 Vercel 환경변수 `SUPABASE_PUBLISHABLE_KEY`에만 있습니다(값은 저장소에 없고, 환경변수를 바꾼 뒤에는 새로 배포해야 반영됩니다). 로그인 응답에는 화면이 쓸 출입증·만료 시각·이메일만 담고 비밀번호는 기록하지 않습니다. 이 로그인 이전은 "로그인 호출은 그대로 두라"는 안내와 달라서, 화면 코드에 키가 없어야 하는 조건을 채우려는 학생의 선택으로 했습니다.
+
+**DB:** `supabase/004_notes_revoke_direct.sql`(`revoke all on table public.notes from public, anon, authenticated;`)을 SQL Editor에서 실행했습니다. `notes` 표 하나만 다루며, 이제 `anon`·`authenticated`는 이 표를 직접 읽거나 쓸 수 없고 서버 함수가 쓰는 `service_role`만 접근합니다. RLS와 정책 4개는 그대로 둡니다. 서버의 로그인 확인과 주인 확인 코드(`src/notes-api.mjs`)는 바꾸지 않았습니다.
+
+**다시 실행하는 방법:** `npm run test:auth`(서버 로그인 시험), `npm run test:notes`, `npm run test:r5`, `npm run bundle`(변경을 커밋한 뒤, 사이트에 접속할 수 있는 컴퓨터에서 `bundle-notes.json`을 만들어 실행). 5단계 자기 점검은 4단계의 로그인 없는 요청 다섯 개에 `original_api_direct_read`(원본 주소를 로그인 없이 직접 읽기)를 더했고, 셸에 `SUPABASE_PUBLISHABLE_KEY`를 넣어 두면 그 키를 붙여, 없으면 키 없이 보냅니다. 키 값은 기록하지 않으며, `npm run bundle`을 실행하기 전에는 미실행입니다. `npm run test:package`의 1개 실패는 2단계에 `api/notes.js`가 생겼는데 시작 틀의 검사표가 이를 모르기 때문이며 5단계 변경과 무관합니다.
+
+**남은 약점·한계:** 옛 공개 커밋(`7f8a314`)과 옛 배포의 메모 노출은 해소되지 않았습니다. 로그인 서버에는 Supabase의 시도 횟수 제한만 있고 서버 함수 쪽 별도 제한은 없습니다. 출입증은 브라우저 저장소에 보관되므로, 이 사이트에 다른 스크립트가 들어오면 읽힐 수 있습니다(화면은 외부 스크립트를 불러오지 않습니다). 판정 점수는 아직 보지 않았습니다.
+
+## 5단계 확인 결과
+
+| 확인 | 결과 | 실행 여부 |
+|---|---|---|
+| 브라우저가 부르는 자료 요청 | 로그인 방식 변경 전 Network 탭에서 `notes` 요청만 보임, `rest/v1` 요청 없음. 변경 뒤 화면 코드에는 Supabase 주소·키·SDK 글자가 없음 | 변경 전 Network 탭 실행함, 변경 뒤 Network 탭은 미실행 |
+| `notes` 권한 (회수 전) | `authenticated` 4종(DELETE·INSERT·SELECT·UPDATE), `service_role` 7종, `anon`·`PUBLIC` 없음 | 실행함 (SQL Editor) |
+| `notes` 권한 (회수 후) | `has_table_privilege`: `anon`·`authenticated`는 4칸 모두 `false`, `service_role`은 4칸 모두 `true` | 실행함 (SQL Editor) |
+| 원본 주소 직접 조회 (공개 키 / 로그인한 A의 출입증) | `[[401,"42501"],[403,"42501"]]`, 메모 개수 없음 | 실행함 (콘솔, 배포 `c1852ef`) |
+| 로그인 없는 서버 함수 요청 (GET·POST·PUT·DELETE) | 모두 `401 LOGIN_REQUIRED` | 실행함 (콘솔, 배포 `c1852ef`) |
+| B가 A의 메모 번호로 조회·수정·주인 변경·삭제 | `[404,404,403,404]`, B 화면에는 B의 시험 메모 1장만 보임 | 실행함 (콘솔, 배포 `c1852ef`) |
+| A가 서버 함수로 추가·수정·삭제 | 모두 동작, 끝에 카드 4장 | 실행함 (시크릿 창, 권한 회수 뒤 `c1852ef`와 새 로그인 `a290466` 각각) |
+| 새 로그인 방식으로 A 로그인·메모 4건·로그아웃 | 로그인됨 표시, 메모 4건, 로그아웃 뒤 로그인 칸 | 실행함 (시크릿 창, 배포 `a290466`) |
+| 배포된 `/aleph.json`과 첫 화면 | `step` 5, 커밋 `d667e1a`, `allowedRoutes` 5개, `X-Content-Type-Options: nosniff`, 화면 코드에 키 없음 | 실행함 (콘솔, 배포 `d667e1a`) |
+| 로그인 변경 뒤 B의 로그인·거부 시험 | 서버 로그인으로 B 로그인, B의 거부 시험 | 미실행 |
+| `npm run bundle`의 5단계 자기 점검 | 학생 PC에서 실행한 뒤 기록 | 미실행 |
+| 심판 판정 | 제출 전 | 미실행 |
+
+## 4단계 현재 상태 (4단계 시점 기록, 5단계에서 이어짐)
 
 `aleph.config.json`의 `step`은 4입니다. `allowedRoutes`는 3단계와 같은 다섯 경로입니다.
 
@@ -28,13 +57,13 @@
 
 **자료:** 처음 있던 가상 메모 네 건은 계정 A 소유이고, 계정 B 소유의 시험 메모가 한 건 있습니다. 계정을 연결할 때 쓴 SQL에는 이메일이 있어 저장소에 넣지 않았습니다.
 
-**남은 약점·한계:** 로그인해서 직접 Data API를 부르는 경로(`authenticated`)도 시험했고 남의 행은 읽히지도 바뀌지도 않았습니다. 5단계 이후 화면에서 다시 확인해야 합니다. 옛 공개 커밋(`7f8a314`)과 옛 배포의 메모 노출은 해소되지 않았습니다.
+**남은 약점·한계:** 로그인해서 직접 Data API를 부르는 경로(`authenticated`)도 시험했고 남의 행은 읽히지도 바뀌지도 않았습니다. 5단계에서 다시 확인했습니다(위 "5단계 확인 결과"). 옛 공개 커밋(`7f8a314`)과 옛 배포의 메모 노출은 해소되지 않았습니다.
 
 ## 3단계 현재 상태 (3단계 시점 기록, 소유자 검사는 4단계에서 추가됨)
 
 `aleph.config.json`의 `step`은 3입니다. `identityProvider`에는 로그인 발급자 주소(`issuer`), 공개 키 목록 주소(`jwksUrl`), `audience`만 있고 비밀 키는 없습니다. `allowedRoutes`는 실제 자료 API 다섯 경로(`GET /api/notes`, `POST /api/notes`, `GET·PUT·DELETE /api/notes/:id`)입니다. 빌드는 공개 `data.json`을 만들지 않아 `/data.json`은 404이고, `public/aleph.json`(저장소·커밋·주소·단계)을 계속 만들며, `vercel.json`은 모든 응답에 `X-Content-Type-Options: nosniff`를 붙입니다.
 
-화면은 Supabase Auth 이메일·비밀번호 로그인과 로그아웃(공식 SDK)을 제공합니다. 화면 코드에는 프로젝트 주소와 공개용(publishable) 키만 있고, 서버 전용 키는 없습니다. 로그인한 사람은 가상 메모를 추가·수정·삭제할 수 있습니다.
+화면은 Supabase Auth 이메일·비밀번호 로그인과 로그아웃(공식 SDK)을 제공합니다. 화면 코드에는 (3단계 시점 기록, 5단계에서 제거됨) 프로젝트 주소와 공개용(publishable) 키만 있고, 서버 전용 키는 없습니다. 로그인한 사람은 가상 메모를 추가·수정·삭제할 수 있습니다.
 
 서버 API는 요청의 로그인 토큰을 `src/verify-login.mjs`(코스가 준 도우미, 고치지 않음)로 검사합니다. 토큰이 없거나 위조·만료·다른 서비스용이면 자료 없이 `401`과 `{"error":"LOGIN_REQUIRED"}`로 거부합니다. 브라우저가 보낸 사용자 ID·권한 값은 쓰지 않으며, 메모를 추가할 때는 서버가 확인한 사용자 ID를 `owner_id`로 저장합니다. 목록(`GET /api/notes`)은 `{id,title,body}` 배열이고, 지운 메모의 한 건 조회는 404입니다. 실제 처리는 `src/notes-api.mjs`에 있고, `api/notes.js`와 `api/notes/[id].js`가 이를 부릅니다.
 
@@ -58,8 +87,8 @@ DB 쓰기 권한은 `supabase/002_notes_write_grants.sql`(서버 함수가 쓰�
 | 공개 키로 Data API 직접 조회 | `401`, `permission denied for table notes`, 메모 내용 없음 | 실행함 (콘솔) |
 | 로그인한 사용자(`authenticated`)의 직접 Data API 접근 | A의 토큰으로 직접 요청: 내 메모 조회 `[200, 4]`, B 메모 조회·수정·삭제 모두 `[200, 0]`(읽히지도 바뀌지도 않음), B 소유로 추가 `[403, "42501"]`(거부) | 실행함 (콘솔, 서버 API를 거치지 않음) |
 | 로그인 없는 PUT·DELETE | 3단계에서 `[401, 401]` 확인, 4단계 점검은 `npm run bundle`에 기록 | 3단계에서 실행함 |
-| 5단계 뒤 화면에서 다시 확인 | 5단계 이후 필요 | 미실행 |
-| 저장점 배포의 `/aleph.json` | `step` 4 확인 예정 | 미실행 |
+| 5단계 뒤 화면에서 다시 확인 | 5단계에서 A 추가·수정·삭제와 직접 Data API 거부를 다시 확인 (위 "5단계 확인 결과") | 5단계에서 실행함 |
+| 저장점 배포의 `/aleph.json` | `step` 4 확인 | 실행함 (브라우저, 4단계 저장점 배포) |
 
 ## 3단계 확인 결과
 
