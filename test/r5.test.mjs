@@ -92,3 +92,38 @@ test('step 2 attack check records static data.json and /api/notes without note b
     globalThis.fetch = originalFetch;
   }
 });
+
+test('step 3 attack check records rejected anonymous list and create requests without bodies', async () => {
+  const originalFetch = globalThis.fetch;
+  const requested = [];
+  try {
+    globalThis.fetch = async (url, init) => {
+      requested.push(`${init.method ?? 'GET'} ${new URL(String(url)).pathname}`);
+      assert.equal(init.redirect, 'error');
+      assert.ok(!init.headers?.Authorization && !init.headers?.authorization);
+      if (String(url).endsWith('/data.json')) return new Response('Not found', { status: 404 });
+      return new Response(JSON.stringify({ error: 'LOGIN_REQUIRED' }), {
+        status: 401, headers: { 'content-type': 'application/json' },
+      });
+    };
+    const results = await runAttackChecks({ ...config, step: 3 });
+    assert.deepEqual(requested, ['GET /data.json', 'GET /api/notes', 'POST /api/notes']);
+    assert.deepEqual(results.map(item => item.attackId),
+      ['static_data_json_read', 'anonymous_notes_list_read', 'anonymous_note_create']);
+    assert.match(results[1].observed, /HTTP 401, 오류 문구 LOGIN_REQUIRED, 가상 메모 0건/u);
+    assert.match(results[2].observed, /HTTP 401/u);
+    for (const item of results) {
+      assert.deepEqual(Object.keys(item).sort(), ['attackId', 'expected', 'observed']);
+      assert.ok(item.expected.length <= 300 && item.observed.length <= 300);
+    }
+    // 서버가 잘못 열려 있어 메모 배열을 돌려줘도 본문 내용은 기록하지 않는다.
+    globalThis.fetch = async url => (String(url).endsWith('/data.json')
+      ? new Response('x', { status: 404 })
+      : new Response(JSON.stringify([{ id: 'i', title: 'secret-title', body: 'secret-body' }]), { status: 200 }));
+    const leaked = await runAttackChecks({ ...config, step: 3 });
+    assert.match(leaked[1].observed, /HTTP 200, 오류 문구 없음, 가상 메모 1건/u);
+    assert.ok(!JSON.stringify(leaked).includes('secret-'));
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
