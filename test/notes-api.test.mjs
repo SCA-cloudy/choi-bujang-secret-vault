@@ -15,28 +15,33 @@ function fakeResponse() {
   };
 }
 
-// 메모리 안에서만 도는 가짜 저장소. owner는 소유자 검사 없이 기록만 한다.
+// 메모리 안에서만 도는 가짜 저장소. 진짜 저장소처럼 owner_id가 같은 행에만 적용한다.
 function memoryStore(seed = []) {
   const rows = new Map(seed.map(row => [row.id, { ...row }]));
+  const mine = (id, ownerId) => {
+    const row = rows.get(id);
+    return row && row.owner_id === ownerId ? row : null;
+  };
   return {
     rows,
-    async list() { return [...rows.values()]; },
-    async get(id) { return rows.get(id) ?? null; },
+    async list(ownerId) { return [...rows.values()].filter(row => row.owner_id === ownerId); },
+    async get(id, ownerId) { return mine(id, ownerId); },
     async create({ id, ownerId, title, content }) {
       if (rows.has(id)) return { conflict: true };
       rows.set(id, { id, owner_id: ownerId, title, content });
       return { conflict: false };
     },
-    async update(id, { title, content }) {
-      const row = rows.get(id);
+    async update(id, ownerId, { title, content }) {
+      const row = mine(id, ownerId);
       if (!row) return null;
       Object.assign(row, { title, content });
       return row;
     },
-    async remove(id) {
-      const row = rows.get(id);
+    async remove(id, ownerId) {
+      const row = mine(id, ownerId);
+      if (!row) return null;
       rows.delete(id);
-      return row ? { id } : null;
+      return { id };
     },
   };
 }
@@ -159,12 +164,56 @@ test('PUT 본문의 id가 주소의 id와 다르면 400이다', async () => {
   assert.equal(r.statusCode, 400);
 });
 
-test('아직 소유자 검사는 없다: B가 A의 메모를 읽고 고칠 수 있다(4단계에서 막을 약점)', async () => {
-  const { handlers } = build([{ id: ID1, owner_id: A, title: 'A의 메모', content: 'c' }]);
-  const read = await call(handlers.item, { token: 'Bearer b.b.b', query: { id: ID1 } });
-  assert.equal(read.statusCode, 200);
-  const put = await call(handlers.item, { method: 'PUT', token: 'Bearer b.b.b', query: { id: ID1 }, body: { title: '고침', body: 'c' } });
-  assert.equal(put.statusCode, 200);
+test('B는 A의 메모를 읽거나 고치거나 지울 수 없고, 없는 메모와 같은 404를 받는다', async () => {
+  const { handlers, store } = build([{ id: ID1, owner_id: A, title: 'A의 메모', content: 'c' }]);
+  const b = { token: 'Bearer b.b.b', query: { id: ID1 } };
+  const read = await call(handlers.item, b);
+  assert.equal(read.statusCode, 404);
+  assert.deepEqual(read.body, { error: 'NOT_FOUND' });
+  const put = await call(handlers.item, { ...b, method: 'PUT', body: { title: '탈취', body: 'x' } });
+  assert.equal(put.statusCode, 404);
+  const del = await call(handlers.item, { ...b, method: 'DELETE' });
+  assert.equal(del.statusCode, 404);
+  assert.deepEqual(store.rows.get(ID1), { id: ID1, owner_id: A, title: 'A의 메모', content: 'c' });
+  const list = await call(handlers.collection, { token: 'Bearer b.b.b' });
+  assert.deepEqual(list.body, []);
+});
+
+test('A와 B는 각자 자기 메모를 추가·조회·수정·삭제하고 목록에는 자기 것만 보인다', async () => {
+  const { handlers } = build();
+  const ids = {};
+  for (const [who, token] of [['a', 'Bearer a.a.a'], ['b', 'Bearer b.b.b']]) {
+    const created = await call(handlers.collection, { method: 'POST', token, body: { title: `${who}의 제목`, body: `${who}의 본문` } });
+    assert.equal(created.statusCode, 201);
+    ids[who] = created.body.id;
+  }
+  for (const [who, token] of [['a', 'Bearer a.a.a'], ['b', 'Bearer b.b.b']]) {
+    const list = await call(handlers.collection, { token });
+    assert.deepEqual(list.body, [{ id: ids[who], title: `${who}의 제목`, body: `${who}의 본문` }]);
+    const put = await call(handlers.item, { method: 'PUT', token, query: { id: ids[who] }, body: { title: '고침', body: '새 본문' } });
+    assert.deepEqual(put.body, { id: ids[who], title: '고침', body: '새 본문' });
+    const one = await call(handlers.item, { token, query: { id: ids[who] } });
+    assert.deepEqual(one.body, { id: ids[who], title: '고침', body: '새 본문' });
+    const del = await call(handlers.item, { method: 'DELETE', token, query: { id: ids[who] } });
+    assert.equal(del.statusCode, 200);
+    assert.equal((await call(handlers.item, { token, query: { id: ids[who] } })).statusCode, 404);
+  }
+});
+
+test('수정 요청에 owner_id가 있으면 소유자 변경 시도로 403이고, 메모는 그대로이다', async () => {
+  const { handlers, store } = build([{ id: ID1, owner_id: A, title: '원래', content: '원래' }]);
+  for (const body of [
+    { title: 'x', body: 'y', owner_id: B },
+    { title: 'x', body: 'y', ownerId: B },
+    { title: 'x', body: 'y', owner_id: A },
+  ]) {
+    const mine = await call(handlers.item, { method: 'PUT', query: { id: ID1 }, body });
+    assert.equal(mine.statusCode, 403);
+    assert.deepEqual(mine.body, { error: 'OWNER_CHANGE_FORBIDDEN' });
+    const theirs = await call(handlers.item, { method: 'PUT', token: 'Bearer b.b.b', query: { id: ID1 }, body });
+    assert.equal(theirs.statusCode, 403);
+  }
+  assert.deepEqual(store.rows.get(ID1), { id: ID1, owner_id: A, title: '원래', content: '원래' });
 });
 
 test('허용하지 않는 방식은 로그인 검사 전에 405이다', async () => {

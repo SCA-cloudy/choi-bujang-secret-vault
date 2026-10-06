@@ -1,7 +1,9 @@
-// 3단계 제작 3: 로그인한 사람이 가상 메모를 추가·수정·삭제·조회하는 서버 로직.
+// 로그인한 사람이 자기 가상 메모를 추가·수정·삭제·조회하는 서버 로직.
 // - 모든 요청은 먼저 로그인 검사(src/verify-login.mjs)를 통과해야 한다. 통과하지 못하면 자료 없이 401.
 // - 추가할 때 owner_id는 요청 내용이 아니라 서버가 확인한 사용자 ID로만 저장한다.
-// - 아직 소유자 검사는 하지 않는다. 다른 로그인 사용자의 메모를 읽고 고칠 수 있는 약점은 4단계에서 막는다.
+// - 4단계 제작 2: 읽기·수정·삭제는 DB의 owner_id가 서버가 확인한 사용자 ID와 같은 행에만 한다.
+//   남의 메모는 없는 메모와 똑같이 404로 답해, 그런 메모가 있는지도 알려 주지 않는다.
+//   수정 요청에 owner_id가 들어 있으면 소유자 변경 시도로 보고 403으로 거부한다.
 // - SUPABASE_URL과 SUPABASE_SECRET_KEY는 Vercel 환경변수에서만 읽고, 어디에도 내보내지 않는다.
 import { randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
@@ -11,6 +13,9 @@ const MAX_TITLE = 200;
 const MAX_BODY = 5000;
 
 const view = row => ({ id: row.id, title: row.title, body: row.content });
+
+// 수정 요청에 이 이름이 있으면 소유자를 바꾸려는 시도로 본다.
+const OWNER_FIELDS = ['owner_id', 'ownerId', 'user_id', 'userId'];
 
 function readJsonBody(request) {
   let value = request.body;
@@ -66,7 +71,7 @@ export function createNotesHandlers({ verifyAuthorization, store }) {
     if (!identity) return;
     try {
       if (request.method === 'GET') {
-        const rows = await store.list();
+        const rows = await store.list(identity.userId);
         return response.status(200).json(rows.map(view));
       }
       const value = readJsonBody(request);
@@ -96,19 +101,22 @@ export function createNotesHandlers({ verifyAuthorization, store }) {
     if (!UUID.test(id)) return response.status(400).json({ error: 'INVALID_ID' });
     try {
       if (request.method === 'GET') {
-        const row = await store.get(id);
+        const row = await store.get(id, identity.userId);
         return row ? response.status(200).json(view(row)) : response.status(404).json({ error: 'NOT_FOUND' });
       }
       if (request.method === 'DELETE') {
-        const row = await store.remove(id);
+        const row = await store.remove(id, identity.userId);
         return row ? response.status(200).json({ id }) : response.status(404).json({ error: 'NOT_FOUND' });
       }
       const value = readJsonBody(request);
+      if (value && OWNER_FIELDS.some(name => name in value)) {
+        return response.status(403).json({ error: 'OWNER_CHANGE_FORBIDDEN' });
+      }
       const fields = value && readFields(value);
       if (!fields || (value.id !== undefined && String(value.id).toLowerCase() !== id)) {
         return response.status(400).json({ error: 'INVALID_NOTE' });
       }
-      const row = await store.update(id, fields);
+      const row = await store.update(id, identity.userId, fields);
       return row ? response.status(200).json(view(row)) : response.status(404).json({ error: 'NOT_FOUND' });
     } catch (error) {
       return failed(response, error);
@@ -150,13 +158,14 @@ export function createSupabaseStore() {
   const columns = 'id, title, content';
 
   return {
-    async list() {
-      const { data, error } = await (await table()).select(columns).order('created_at', { ascending: true });
+    // 아래 list·get·update·remove는 모두 owner_id가 로그인한 사용자와 같은 행에만 적용한다.
+    async list(ownerId) {
+      const { data, error } = await (await table()).select(columns).eq('owner_id', ownerId).order('created_at', { ascending: true });
       if (error) fail(error);
       return data;
     },
-    async get(id) {
-      const { data, error } = await (await table()).select(columns).eq('id', id).maybeSingle();
+    async get(id, ownerId) {
+      const { data, error } = await (await table()).select(columns).eq('id', id).eq('owner_id', ownerId).maybeSingle();
       if (error) fail(error);
       return data;
     },
@@ -166,13 +175,13 @@ export function createSupabaseStore() {
       if (error) fail(error);
       return { conflict: false };
     },
-    async update(id, { title, content }) {
-      const { data, error } = await (await table()).update({ title, content }).eq('id', id).select(columns).maybeSingle();
+    async update(id, ownerId, { title, content }) {
+      const { data, error } = await (await table()).update({ title, content }).eq('id', id).eq('owner_id', ownerId).select(columns).maybeSingle();
       if (error) fail(error);
       return data;
     },
-    async remove(id) {
-      const { data, error } = await (await table()).delete().eq('id', id).select('id').maybeSingle();
+    async remove(id, ownerId) {
+      const { data, error } = await (await table()).delete().eq('id', id).eq('owner_id', ownerId).select('id').maybeSingle();
       if (error) fail(error);
       return data;
     },
