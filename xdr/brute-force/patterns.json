@@ -1,0 +1,32 @@
+{
+  "schema": "aleph.xdr.patterns.v1",
+  "moduleKey": "brute-force",
+  "mitre": { "id": "T1110", "name": "Brute Force (무차별 대입)", "url": "https://attack.mitre.org/techniques/T1110/" },
+  "note": "수치는 수업용 경보를 보고 정한 연습용 기준입니다. 실제 서비스의 정상 사용량에 맞춰 다시 정해야 합니다.",
+  "patterns": [
+    {
+      "name": "same-source-failure-burst",
+      "title": "같은 주소의 로그인 실패 연속",
+      "mitre": "T1110.001",
+      "condition": {
+        "summary": "짧은 시간(몇 분 안)에 같은 출발 주소에서 로그인 실패가 연달아 쌓이고, 그 사이 성공이 없다.",
+        "signals": ["같은 출발 주소", "짧은 시간", "로그인 실패 연속", "성공 없음"],
+        "clearAt": { "failures": 30 },
+        "suspiciousAt": { "failures": 5 }
+      },
+      "evidence": "MITRE ATT&CK T1110.001(Password Guessing): 공격자가 계정 하나에 비밀번호를 반복해 넣어 보므로, 짧은 시간의 실패 연속이 대표 신호다."
+    },
+    {
+      "name": "one-password-many-accounts",
+      "title": "여러 계정에 같은 비밀번호 대입",
+      "mitre": "T1110.003",
+      "condition": {
+        "summary": "같은 출발 주소가 서로 다른 여러 계정에 같은 비밀번호로 실패를 넣는다. 계정마다 시도 횟수는 적어도 잠금을 피하려는 형태다.",
+        "signals": ["같은 출발 주소", "서로 다른 여러 계정", "같은 비밀번호", "계정마다 적은 시도"],
+        "clearAt": { "accounts": 8 },
+        "suspiciousAt": { "accounts": 3 }
+      },
+      "evidence": "MITRE ATT&CK T1110.003(Password Spraying): 흔한 비밀번호 하나를 많은 계정에 차례로 넣어 계정 잠금을 피하므로, 여러 계정에 같은 비밀번호 실패가 이어지면 이 형태다."
+    }
+  ]
+}
