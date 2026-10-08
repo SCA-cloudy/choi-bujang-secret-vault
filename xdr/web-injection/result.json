@@ -1,0 +1,167 @@
+{
+  "schema": "aleph.xdr.result.v1",
+  "moduleKey": "web-injection",
+  "decisions": [
+    {
+      "alertId": "wi-01",
+      "action": "block",
+      "confidence": 0.95,
+      "reason": "sql-in-request-parameter: 기준 이상의 명확한 공격"
+    },
+    {
+      "alertId": "wi-02",
+      "action": "block",
+      "confidence": 0.91,
+      "reason": "script-tag-in-request-parameter: 기준 이상의 명확한 공격"
+    },
+    {
+      "alertId": "wi-03",
+      "action": "block",
+      "confidence": 0.9,
+      "reason": "path-traversal-repeat: 기준 이상의 명확한 공격"
+    },
+    {
+      "alertId": "wi-04",
+      "action": "block",
+      "confidence": 0.99,
+      "reason": "sql-in-request-parameter: 기준 이상의 명확한 공격"
+    },
+    {
+      "alertId": "wi-05",
+      "action": "block",
+      "confidence": 0.98,
+      "reason": "sql-in-request-parameter: 기준 이상의 명확한 공격"
+    },
+    {
+      "alertId": "wi-06",
+      "action": "block",
+      "confidence": 0.93,
+      "reason": "command-separator-in-request: 기준 이상의 명확한 공격"
+    },
+    {
+      "alertId": "wi-07",
+      "action": "block",
+      "confidence": 0.97,
+      "reason": "path-traversal-repeat: 기준 이상의 명확한 공격"
+    },
+    {
+      "alertId": "wi-08",
+      "action": "block",
+      "confidence": 0.92,
+      "reason": "sql-in-request-parameter: 기준 이상의 명확한 공격"
+    },
+    {
+      "alertId": "wi-09",
+      "action": "alert",
+      "confidence": 0.5,
+      "reason": "sql-in-request-parameter: 애매한 시도"
+    },
+    {
+      "alertId": "wi-10",
+      "action": "alert",
+      "confidence": 0.5,
+      "reason": "sql-in-request-parameter: 애매한 시도"
+    },
+    {
+      "alertId": "wi-11",
+      "action": "alert",
+      "confidence": 0.5,
+      "reason": "script-tag-in-request-parameter: 애매한 시도"
+    },
+    {
+      "alertId": "wi-12",
+      "action": "alert",
+      "confidence": 0.5,
+      "reason": "path-traversal-repeat: 애매한 시도"
+    },
+    {
+      "alertId": "wi-13",
+      "action": "alert",
+      "confidence": 0.5,
+      "reason": "sql-in-request-parameter: 애매한 시도"
+    },
+    {
+      "alertId": "wi-14",
+      "action": "alert",
+      "confidence": 0.5,
+      "reason": "sql-in-request-parameter: 애매한 시도"
+    },
+    {
+      "alertId": "wi-15",
+      "action": "alert",
+      "confidence": 0.5,
+      "reason": "sql-in-request-parameter: 애매한 시도"
+    },
+    {
+      "alertId": "wi-16",
+      "action": "alert",
+      "confidence": 0.5,
+      "reason": "sql-in-request-parameter: 애매한 시도"
+    },
+    {
+      "alertId": "wi-17",
+      "action": "alert",
+      "confidence": 0.5,
+      "reason": "command-separator-in-request: 애매한 시도"
+    },
+    {
+      "alertId": "wi-18",
+      "action": "record",
+      "confidence": 0.1,
+      "reason": "no-pattern: 웹 입력 공격 패턴과 맞지 않는 정상 이벤트"
+    },
+    {
+      "alertId": "wi-19",
+      "action": "record",
+      "confidence": 0.1,
+      "reason": "no-pattern: 웹 입력 공격 패턴과 맞지 않는 정상 이벤트"
+    },
+    {
+      "alertId": "wi-20",
+      "action": "record",
+      "confidence": 0.1,
+      "reason": "no-pattern: 웹 입력 공격 패턴과 맞지 않는 정상 이벤트"
+    },
+    {
+      "alertId": "wi-21",
+      "action": "record",
+      "confidence": 0.1,
+      "reason": "no-pattern: 웹 입력 공격 패턴과 맞지 않는 정상 이벤트"
+    },
+    {
+      "alertId": "wi-22",
+      "action": "record",
+      "confidence": 0.1,
+      "reason": "no-pattern: 웹 입력 공격 패턴과 맞지 않는 정상 이벤트"
+    },
+    {
+      "alertId": "wi-23",
+      "action": "record",
+      "confidence": 0.1,
+      "reason": "no-pattern: 웹 입력 공격 패턴과 맞지 않는 정상 이벤트"
+    },
+    {
+      "alertId": "wi-24",
+      "action": "record",
+      "confidence": 0.1,
+      "reason": "no-pattern: 웹 입력 공격 패턴과 맞지 않는 정상 이벤트"
+    },
+    {
+      "alertId": "wi-25",
+      "action": "record",
+      "confidence": 0.1,
+      "reason": "no-pattern: 웹 입력 공격 패턴과 맞지 않는 정상 이벤트"
+    },
+    {
+      "alertId": "wi-26",
+      "action": "record",
+      "confidence": 0.1,
+      "reason": "no-pattern: 웹 입력 공격 패턴과 맞지 않는 정상 이벤트"
+    }
+  ],
+  "counts": {
+    "block": 8,
+    "alert": 9,
+    "record": 9
+  }
+}
