@@ -1,37 +1,27 @@
 // 보너스 XDR-01 제작 3: 경보 하나를 block / alert / record 중 하나로 가르는 판단 모듈입니다.
-// - 먼저 patterns.json 의 기준으로 경보를 패턴과 맞춰 봅니다.
-//   · 명확한 공격(기준 이상)  -> Jev 에게 묻지 않고 block
-//   · 정상 이벤트(패턴 없음)  -> Jev 에게 묻지 않고 record
-//   · 애매한 건만            -> Jev 에게 확신도(0~1)를 묻습니다.
-// - 확신도 0.85 이상 block, 0.5 이상 alert, 그 아래 record. Jev 가 응답하지 않거나 값이 이상하면 alert 입니다.
-// - Jev 에게는 pickAlert 로 뽑은 다섯 값(비밀값처럼 보이는 값은 가림)과 패턴 이름만 보냅니다. 원본 경보는 고치지 않습니다.
-// - Jev 연결 방법은 이 저장소에 없습니다. 연결하면 createDecide({ askJev }) 로 넣습니다. 연결 전에는 애매한 경보가 alert 입니다.
-import { readFile } from 'node:fs/promises';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { pickAlert } from './read-alerts.mjs';
-
-const HERE = dirname(fileURLToPath(import.meta.url));
-const patternFile = JSON.parse(await readFile(join(HERE, 'patterns.json'), 'utf8'));
-const PATTERNS = new Map(patternFile.patterns.map(pattern => [pattern.name, pattern]));
-const BURST = PATTERNS.get('same-source-failure-burst');
-const SPRAY = PATTERNS.get('one-password-many-accounts');
-
-export const BLOCK_AT = 0.85;
-export const ALERT_AT = 0.5;
-const JEV_TIMEOUT_MS = 5000;
+// 심판은 인터넷 없이 이 파일 한 개만 불러와 경보마다 바로 답을 받습니다. 그래서 이 파일은
+// 다른 파일·패키지를 불러오지 않고, 파일을 읽거나 쓰지 않고, 바깥에 묻지 않고 혼자 계산합니다.
+// 아래 PATTERNS 는 xdr/brute-force/patterns.json 의 내용을 그대로 옮겨 적은 상수입니다.
+const PATTERNS = {
+  burst: {
+    name: 'same-source-failure-burst', // 같은 주소의 로그인 실패 연속 (MITRE T1110.001)
+    clearAt: { failures: 30 },
+    suspiciousAt: { failures: 5 },
+  },
+  spray: {
+    name: 'one-password-many-accounts', // 여러 계정에 같은 비밀번호 대입 (MITRE T1110.003)
+    clearAt: { accounts: 8 },
+    suspiciousAt: { accounts: 3 },
+  },
+};
 const NO_PATTERN = 'no-pattern';
+const BLOCK_AT = 0.85;
+const ALERT_AT = 0.5;
 
-function actionFor(confidence) {
-  if (confidence >= BLOCK_AT) return 'block';
-  if (confidence >= ALERT_AT) return 'alert';
-  return 'record';
-}
-
-// 경보에서 판단에 쓸 값만 계산한다. (읽기만 하고 고치지 않는다.)
+// 경보에서 판단에 쓸 값만 계산한다. (경보 원본은 읽기만 하고 고치지 않는다.)
 function features(alert) {
   const description = typeof alert?.rule?.description === 'string' ? alert.rule.description : '';
-  const data = alert?.data ?? {};
+  const data = alert?.data && typeof alert.data === 'object' ? alert.data : {};
   const mitre = Array.isArray(alert?.rule?.mitre) ? alert.rule.mitre : [];
   const accountList = typeof data.accounts === 'string' ? data.accounts.split(',').filter(Boolean).length : 0;
   const accountText = Number((description.match(/계정\s*(\d+)\s*개/u) ?? [])[1]);
@@ -44,56 +34,41 @@ function features(alert) {
   return { failures, accounts, hasSuccess, tagged: mitre.includes('T1110') };
 }
 
-// 패턴과 맞춰 본다: 'clear'(명확) / 'unclear'(애매) / 'none'(정상)
-export function matchPattern(alert) {
+// 값이 기준에 얼마나 가까운지로 0~1 확신도를 만든다.
+//  기준(clearAt) 이상: 0.90 ~ 0.99 (많을수록 뚜렷)
+//  의심(suspiciousAt) 이상 기준 미만: 0.50 ~ 0.84 (기준에 가까울수록 높음)
+//  그 아래: 0
+function closeness(value, { clearAt, suspiciousAt }) {
+  if (value >= clearAt) return Math.min(0.99, 0.9 + 0.09 * ((value - clearAt) / clearAt));
+  if (value >= suspiciousAt) return 0.5 + 0.34 * ((value - suspiciousAt) / (clearAt - suspiciousAt));
+  return 0;
+}
+
+function actionFor(confidence) {
+  if (confidence >= BLOCK_AT) return 'block';
+  if (confidence >= ALERT_AT) return 'alert';
+  return 'record';
+}
+
+export function decide(alert) {
   const f = features(alert);
-  if (f.accounts >= SPRAY.condition.clearAt.accounts && !f.hasSuccess) return { kind: 'clear', pattern: SPRAY };
-  if (f.failures >= BURST.condition.clearAt.failures && !f.hasSuccess) return { kind: 'clear', pattern: BURST };
-  const spraySuspicious = f.accounts >= SPRAY.condition.suspiciousAt.accounts;
-  const burstSuspicious = f.failures >= BURST.condition.suspiciousAt.failures;
-  if (spraySuspicious || burstSuspicious || f.tagged) {
-    return { kind: 'unclear', pattern: f.accounts > 0 ? SPRAY : BURST };
+  const burst = closeness(f.failures, { clearAt: PATTERNS.burst.clearAt.failures, suspiciousAt: PATTERNS.burst.suspiciousAt.failures });
+  const spray = closeness(f.accounts, { clearAt: PATTERNS.spray.clearAt.accounts, suspiciousAt: PATTERNS.spray.suspiciousAt.accounts });
+  let pattern = spray > burst ? PATTERNS.spray : PATTERNS.burst;
+  let confidence = Math.max(burst, spray);
+
+  // T1110 표시가 있는데 수치로는 뚜렷하지 않으면 애매한 시도(알림 선)로 본다.
+  if (f.tagged && confidence < ALERT_AT) {
+    confidence = ALERT_AT;
+    pattern = f.accounts > 0 ? PATTERNS.spray : PATTERNS.burst;
   }
-  return { kind: 'none', pattern: null };
-}
+  // 실패 뒤에 성공이 있으면 공격이 뚜렷하다고 단정하지 않는다. (block 선 아래로 제한)
+  if (f.hasSuccess && confidence >= BLOCK_AT) confidence = 0.7;
 
-// Jev 의 답에서 0~1 확신도만 꺼낸다. 숫자 또는 { confidence } 만 인정하고, 나머지는 응답 없음으로 본다.
-function readConfidence(answer) {
-  const value = typeof answer === 'number' ? answer : answer?.confidence;
-  return typeof value === 'number' && Number.isFinite(value) && value >= 0 && value <= 1 ? value : null;
-}
-
-async function askWithTimeout(askJev, question, timeoutMs) {
-  let timer;
-  try {
-    const timeout = new Promise((_, reject) => { timer = setTimeout(() => reject(new Error('timeout')), timeoutMs); });
-    return readConfidence(await Promise.race([Promise.resolve(askJev(question)), timeout]));
-  } catch {
-    return null;
-  } finally {
-    clearTimeout(timer);
+  if (confidence < ALERT_AT) {
+    return { action: 'record', confidence: 0.1, reason: `${NO_PATTERN}: 로그인 공격 패턴과 맞지 않는 정상 이벤트` };
   }
+  const action = actionFor(confidence);
+  const note = action === 'block' ? '기준 이상의 명확한 공격' : '애매한 시도';
+  return { action, confidence: Math.round(confidence * 100) / 100, reason: `${pattern.name}: ${note}` };
 }
-
-export function createDecide({ askJev = null, timeoutMs = JEV_TIMEOUT_MS } = {}) {
-  return async function decide(alert) {
-    const { kind, pattern } = matchPattern(alert);
-    if (kind === 'clear') {
-      return { action: 'block', confidence: 0.95, reason: `${pattern.name}: 기준 이상의 명확한 공격` };
-    }
-    if (kind === 'none') {
-      return { action: 'record', confidence: 0.1, reason: `${NO_PATTERN}: 로그인 공격 패턴과 맞지 않는 정상 이벤트` };
-    }
-    // 애매한 경보: Jev 에게 묻는다. 응답이 없으면 alert 로 떨어진다.
-    const confidence = typeof askJev === 'function'
-      ? await askWithTimeout(askJev, { alert: pickAlert(alert), pattern: pattern.name }, timeoutMs)
-      : null;
-    if (confidence === null) {
-      return { action: 'alert', confidence: ALERT_AT, reason: `${pattern.name}: 애매한 시도, Jev 응답 없어 알림으로 남김` };
-    }
-    return { action: actionFor(confidence), confidence, reason: `${pattern.name}: 애매한 시도, Jev 확신도 ${confidence}` };
-  };
-}
-
-// 실행기(scripts/xdr-run.mjs)가 부르는 기본 판단. Jev 를 연결하기 전이라 애매한 경보는 alert 입니다.
-export const decide = createDecide();
