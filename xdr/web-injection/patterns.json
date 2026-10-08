@@ -1,0 +1,56 @@
+{
+  "schema": "aleph.xdr.patterns.v1",
+  "moduleKey": "web-injection",
+  "mitre": { "id": "T1190", "name": "Exploit Public-Facing Application (외부 공개 앱 악용)", "url": "https://attack.mitre.org/techniques/T1190/" },
+  "note": "수치는 수업용 경보를 보고 정한 연습용 기준입니다. 실제 서비스의 정상 사용량에 맞춰 다시 정해야 합니다. 실제 공격 문구는 적지 않고 말로만 설명합니다.",
+  "patterns": [
+    {
+      "name": "sql-in-request-parameter",
+      "title": "요청 인자 안의 SQL 구문",
+      "mitre": "T1190",
+      "condition": {
+        "summary": "같은 출발 주소가 요청 인자에 SQL 구문(조회를 이어 붙이는 표기)을 여러 번 반복해 넣는다. 한 번뿐인 수업 단어나 일반 검색어는 해당하지 않는다.",
+        "signals": ["같은 출발 주소", "요청 인자 안의 SQL 구문", "조회를 이어 붙이는 표기", "반복"],
+        "clearAt": { "repeats": 8 },
+        "suspiciousAt": { "repeats": 1 }
+      },
+      "evidence": "MITRE ATT&CK T1190(Exploit Public-Facing Application): 공개 앱의 요청 인자에 SQL 구문을 끼워 데이터베이스를 조작하는 것이 대표 수법이며, MOVEit(CVE-2023-34362)도 SQL 주입에서 시작했다(CISA AA23-158A)."
+    },
+    {
+      "name": "script-tag-in-request-parameter",
+      "title": "요청 인자 안의 스크립트 태그",
+      "mitre": "T1190",
+      "condition": {
+        "summary": "같은 출발 주소가 요청 인자에 스크립트 태그(삽입 표식)를 여러 번 반복해 넣는다. 수업 단어 '스크립트'가 한 번 있는 것은 해당하지 않는다.",
+        "signals": ["같은 출발 주소", "요청 인자 안의 스크립트 태그", "삽입 표식", "반복"],
+        "clearAt": { "repeats": 8 },
+        "suspiciousAt": { "repeats": 1 }
+      },
+      "evidence": "MITRE ATT&CK T1190(Exploit Public-Facing Application): 공개 앱이 입력값을 거르지 못하는 약점을 노려 요청 인자에 스크립트 태그를 심는 형태다."
+    },
+    {
+      "name": "path-traversal-repeat",
+      "title": "경로 거슬러 올라가기(../) 반복",
+      "mitre": "T1190",
+      "condition": {
+        "summary": "같은 출발 주소가 경로를 거슬러 올라가는 표기(../)를 여러 단계, 여러 번 반복한다. 경로에 'up' 같은 글자가 한 번 있는 것은 해당하지 않는다.",
+        "signals": ["같은 출발 주소", "경로 거슬러 올라가기(../)", "여러 단계", "반복"],
+        "clearAt": { "repeats": 8 },
+        "suspiciousAt": { "repeats": 1 }
+      },
+      "evidence": "MITRE ATT&CK T1190(Exploit Public-Facing Application): 경로를 거슬러 올라가는 표기(../)를 반복해 공개 앱이 허용한 폴더 밖의 파일에 닿으려는 형태다."
+    },
+    {
+      "name": "command-separator-in-request",
+      "title": "요청 인자 안의 명령 구분자",
+      "mitre": "T1190",
+      "condition": {
+        "summary": "같은 출발 주소가 연속된 요청 인자에 명령 구분자 표기를 반복해 넣는다. 이름 검색의 구분 문자 한 건은 해당하지 않는다.",
+        "signals": ["같은 출발 주소", "요청 인자 안의 명령 구분자", "연속 요청", "반복"],
+        "clearAt": { "repeats": 8 },
+        "suspiciousAt": { "repeats": 1 }
+      },
+      "evidence": "MITRE ATT&CK T1190(Exploit Public-Facing Application): 요청 인자에 명령 구분자를 끼워 공개 앱이 서버 명령을 이어서 실행하게 만들려는 형태다."
+    }
+  ]
+}
