@@ -47,6 +47,38 @@
 | `npm run bundle`의 5단계 자기 점검 | 학생 PC에서 실행한 뒤 기록 | 미실행 |
 | 심판 판정 | 제출 전 | 미실행 |
 
+## 보너스 XDR-01 현재 상태 (무차별 로그인 공격, 2026-10-08)
+
+연습용 Wazuh 경보 28건(`xdr/fixtures/brute-force.json`, 고치지 않음)을 읽어 경보마다 `block`·`alert`·`record` 중 하나로 가르는 모듈입니다. 5단계 자료실 코드(`api`, `public`, `src`)는 이번 보너스에서 바뀌지 않았습니다.
+
+| 파일 | 하는 일 |
+|---|---|
+| `xdr/brute-force/read-alerts.mjs` | 경보에서 시각·출발 주소·계정·규칙 수준·설명만 뽑음. 비밀값처럼 보이는 값은 `[가림]`. 확인용이라 `decide.mjs`가 불러오지 않음 |
+| `xdr/brute-force/patterns.json` | 패턴 2개(같은 주소의 로그인 실패 연속, 여러 계정에 같은 비밀번호 대입)와 MITRE T1110 근거 |
+| `xdr/brute-force/decide.mjs` | 패턴을 맨 위 상수로 옮겨 적고 혼자 계산해 `{ action, confidence, reason }` 반환. import·파일·네트워크 없음. 0.85 이상 `block`, 0.5 이상 `alert`, 그 아래 `record` |
+| `xdr/brute-force/respond.mjs` | `block` 주소만 만료 시각·근거 경보 번호가 붙은 거부 규칙으로 만들고, `block`·`alert`를 `xdr/alerts.log`에 한 줄씩 씀. 계정은 막지 않음 |
+| `xdr/brute-force/result.json` | `npm run xdr:run -- brute-force`가 만드는 결과 |
+
+**다시 실행하는 방법** (저장소 루트에서)
+
+```
+npm run xdr:run -- brute-force
+node xdr/brute-force/respond.mjs
+```
+
+첫 줄은 `result.json`을 새로 만들고, 둘째 줄은 규칙·알림 로그(`xdr/alerts.log`, Git에 올리지 않음)와 막힘·통과 건수를 보여 줍니다.
+
+| 확인한 것 | 결과 | 상태 |
+|---|---|---|
+| `result.json`의 `counts` | `block` 10, `alert` 9, `record` 9 (경보 28건) | 실행함 |
+| 정상 이벤트(MITRE T1110 표시 없는 9건)를 `block` 한 경우 | 0건 | 실행함 |
+| `decide.mjs` 한 파일만 빈 폴더에 두고 실행기로 실행 | 같은 결과, 형식 오류 0건 | 실행함 |
+| 시험 경보를 흘렸을 때 | 명확한 공격 10건 중 10건 막힘, 알림·정상 18건 중 18건 통과 | 실행함 (`respond.mjs` 안의 연습) |
+| 심판 판정 | 제출 전 | 미실행 |
+| 판정기(`src/decider.mjs`)와의 실제 연결 | 요청 계약에 출발 주소가 없어 연결하지 못함. 규칙 목록과 `isDenied()`까지만 있음 | 미연결 |
+
+`block`·`alert`·`record`의 기대 답은 경보 번호와 규칙 수준을 보고 직접 정한 것이며 심판의 정답이 아닙니다. 위 시험은 연습이고 실제 접속 차단이나 심판 판정의 증거가 아닙니다. 판정 기준 숫자(실패 30건, 계정 8개 등)는 연습용 경보에 맞춘 값이라 실제 서비스에서는 다시 정해야 합니다.
+
 ## 4단계 현재 상태 (4단계 시점 기록, 5단계에서 이어짐)
 
 `aleph.config.json`의 `step`은 4입니다. `allowedRoutes`는 3단계와 같은 다섯 경로입니다.
