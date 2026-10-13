@@ -1,0 +1,38 @@
+{
+  "schema": "aleph.policy-snapshot.v1",
+  "version": "safe-9",
+  "source": {
+    "step": 9,
+    "commit": "a15d85097db558367140ba95a771ee292c228742",
+    "basis": "9단계 저장점, 심판 100/100을 받은 커밋의 정책"
+  },
+  "policy": {
+    "schema": "aleph.policy.v1",
+    "ruleIds": [
+      "device_registered",
+      "resource_zone",
+      "step_up_required"
+    ],
+    "allowedRoutes": [
+      "DELETE /api/notes/:id",
+      "GET /api/notes",
+      "GET /api/notes/:id",
+      "POST /api/notes",
+      "PUT /api/notes/:id"
+    ],
+    "decisions": {
+      "anomaly:step_up_verified": "allow",
+      "anomaly:without_step_up": "step_up",
+      "DELETE /notes/:id": "deny",
+      "device:unregistered": "deny",
+      "GET /notes": "deny",
+      "GET /notes/:id": "allow",
+      "GET /notices": "deny",
+      "GET /notices/:id": "deny",
+      "POST /notes": "deny",
+      "PUT /notes/:id": "allow",
+      "PUT /notices/:id": "deny"
+    }
+  },
+  "sha256": "2756f683cac938e2ab3b7351f0422fe7304b4e17fe87dfa82a9258f29739549e"
+}
