@@ -236,3 +236,61 @@ test('서버 기록에는 이유 코드만 남고 메모 내용·사용자 ID·�
   assert.match(text, /복구 거부 사유=BACKUP_MISSING/);
   for (const secret of [A, B, 'SAMPLE_B', '원본', 'Bearer', 'b.b.b']) assert.ok(!text.includes(secret), secret);
 });
+
+test('미리 보기: 변조된 메모는 update로 알리고, 복원할 버전과 바뀔 항목만 보여 주며 아무것도 쓰지 않는다', async () => {
+  const ctx = await seedB();
+  await call(ctx.notes.item, { method: 'PUT', query: { id: IDB }, body: { title: '변조 제목', body: '변조 내용 TAMPERED' } });
+  const before = snapshotOf(ctx.store);
+  const result = await call(ctx.restore, { body: { id: IDB, preview: true } });
+  assert.equal(result.statusCode, 200);
+  assert.deepEqual(result.body, {
+    id: IDB, preview: true, action: 'update',
+    backupSha256: noteContentSha256('B 원본 제목', 'B 원본 내용 SAMPLE_B'),
+    currentSha256: noteContentSha256('변조 제목', '변조 내용 TAMPERED'),
+    changes: { title: true, content: true },
+  });
+  assert.equal(snapshotOf(ctx.store), before); // 메모도 사본도 그대로
+  const text = JSON.stringify(result.body);
+  for (const secret of ['SAMPLE_B', 'TAMPERED', '원본 제목']) assert.ok(!text.includes(secret), secret); // 본문·제목은 응답에 없다
+});
+
+test('미리 보기: 지운 메모는 recreate, 이미 같은 메모는 none으로 알리고 다시 만들지 않는다', async () => {
+  const ctx = await seedB();
+  const same = await call(ctx.restore, { body: { id: IDB, preview: true } });
+  assert.equal(same.body.action, 'none');
+  assert.deepEqual(same.body.changes, { title: false, content: false });
+  assert.equal(same.body.currentSha256, same.body.backupSha256);
+  await call(ctx.notes.item, { method: 'DELETE', query: { id: IDB } });
+  const before = snapshotOf(ctx.store);
+  const gone = await call(ctx.restore, { body: { id: IDB, preview: true } });
+  assert.equal(gone.statusCode, 200);
+  assert.equal(gone.body.action, 'recreate');
+  assert.equal(gone.body.currentSha256, null);
+  assert.ok(!ctx.store.rows.has(IDB)); // 미리 보기만으로는 되살아나지 않는다
+  assert.equal(snapshotOf(ctx.store), before);
+});
+
+test('미리 보기도 실제 복구와 같은 검사를 먼저 통과해야 한다', async () => {
+  const ctx = await seedB();
+  const before = snapshotOf(ctx.store);
+  assert.equal((await call(ctx.restore, { token: null, body: { id: IDB, preview: true } })).statusCode, 401);
+  assert.equal((await call(ctx.restore, { token: 'Bearer a.a.a', body: { id: IDB, preview: true } })).statusCode, 404); // 남의 메모
+  assert.equal((await call(ctx.restore, { body: { id: IDA, preview: true } })).statusCode, 404);
+  assert.equal((await call(ctx.restore, { method: 'GET', body: { id: IDB, preview: true } })).statusCode, 405);
+  assert.equal((await call(ctx.restore, { body: { id: IDB, preview: 'yes' } })).statusCode, 400);
+  assert.equal((await call(ctx.restore, { body: { id: IDB, preview: true, extra: 1 } })).statusCode, 400);
+  assert.equal((await call(ctx.restore, { body: { id: IDB, preview: true, owner_id: A } })).statusCode, 403);
+  assert.equal((await call(ctx.restore, { body: { preview: true } })).statusCode, 400);
+  // 사본이 변조되어 해시가 맞지 않으면 미리 보기도 409로 멈춘다
+  ctx.store.backups.get(IDB).content = '사본 변조';
+  const stopped = await call(ctx.restore, { body: { id: IDB, preview: true } });
+  assert.equal(stopped.statusCode, 409);
+  assert.deepEqual(stopped.body, { error: 'BACKUP_INVALID' });
+  ctx.store.backups.get(IDB).content = 'B 원본 내용 SAMPLE_B';
+  assert.equal(snapshotOf(ctx.store), before);
+  // preview:false 는 실제 복구와 같다
+  await call(ctx.notes.item, { method: 'PUT', query: { id: IDB }, body: { title: '변조', body: '변조' } });
+  const real = await call(ctx.restore, { body: { id: IDB, preview: false } });
+  assert.equal(real.statusCode, 200);
+  assert.equal(real.body.restored, 'updated');
+});
