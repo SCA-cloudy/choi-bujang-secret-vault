@@ -1,30 +1,49 @@
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { collectCurrentPolicy, describePlan, diffPolicy, verifySnapshot } from '../src/policy-diff.mjs';
 import { fixtureRequests } from './fixture-7.mjs';
 
 // 10단계 제작 1: 안전 정책 사본과 현재 시험 정책의 차이를 "보기만" 합니다. 어떤 파일도 고치지 않습니다.
 // 사본이 없거나 검증에 실패하면 차이를 계산하지 않고 중단합니다(종료 코드 1).
-const root = resolve(fileURLToPath(import.meta.url), '..', '..');
+export const REPO_ROOT = resolve(fileURLToPath(import.meta.url), '..', '..');
+const root = REPO_ROOT;
 export const DEFAULT_SNAPSHOT = resolve(root, 'policy', 'safe-policy.json');
 
 const KIND_TEXT = { restore_add: '다시 생김', restore_remove: '없어짐', restore_change: '값이 바뀜' };
 
-export async function run({ file = DEFAULT_SNAPSHOT, expectSha256, current } = {}) {
-  const out = [];
+// 사본을 읽고 검증합니다. 실패하면 { ok: false, line }(중단 문장), 통과하면 { ok: true, snapshot }.
+export async function readVerifiedSnapshot(file = DEFAULT_SNAPSHOT, expectSha256) {
   let text;
   try { text = await readFile(file, 'utf8'); } catch {
-    return { code: 1, lines: ['중단: 안전 정책 사본 파일이 없습니다. 사본이 없으면 복원할 버전을 정할 수 없어 아무것도 하지 않습니다.'] };
+    return { ok: false, line: '중단: 안전 정책 사본 파일이 없습니다. 사본이 없으면 복원할 버전을 정할 수 없어 아무것도 하지 않습니다.' };
   }
   let snapshot;
   try { snapshot = JSON.parse(text); } catch {
-    return { code: 1, lines: ['중단: 안전 정책 사본을 JSON으로 읽을 수 없습니다(검증 실패: snapshot_not_json).'] };
+    return { ok: false, line: '중단: 안전 정책 사본을 JSON으로 읽을 수 없습니다(검증 실패: snapshot_not_json).' };
   }
   const verdict = verifySnapshot(snapshot, { expectedSha256: expectSha256 });
-  if (!verdict.ok) return { code: 1, lines: [`중단: 안전 정책 사본 검증에 실패했습니다(${verdict.reason}). 차이를 계산하지 않았습니다.`] };
+  if (!verdict.ok) return { ok: false, line: `중단: 안전 정책 사본 검증에 실패했습니다(${verdict.reason}). 차이를 계산하지 않았습니다.` };
+  return { ok: true, snapshot };
+}
 
-  const now = current ?? await collectCurrentPolicy(await liveInputs());
+// 지정한 폴더(기본: 이 저장소)의 판정기·설정으로 현재 시험 정책을 모읍니다.
+let loadCount = 0;
+export async function currentPolicyOf(base = root) {
+  const url = `${pathToFileURL(resolve(base, 'src', 'decider.mjs')).href}?load=${++loadCount}`;
+  const { RULE_IDS, decide } = await import(url);
+  const config = JSON.parse(await readFile(resolve(base, 'aleph.config.json'), 'utf8'));
+  const { normal, suspicious } = fixtureRequests();
+  return collectCurrentPolicy({ ruleIds: RULE_IDS, allowedRoutes: config.allowedRoutes, decide, baseRequest: normal, anomalyRequest: suspicious });
+}
+
+export async function run({ file = DEFAULT_SNAPSHOT, expectSha256, current } = {}) {
+  const out = [];
+  const loaded = await readVerifiedSnapshot(file, expectSha256);
+  if (!loaded.ok) return { code: 1, lines: [loaded.line] };
+  const { snapshot } = loaded;
+
+  const now = current ?? await currentPolicyOf();
   const diff = diffPolicy(snapshot.policy, now);
   const plan = describePlan(snapshot, diff);
   out.push(`복원할 정책 버전: ${plan.version} (커밋 ${plan.commit.slice(0, 7)}, 사본 지문 ${plan.sha256.slice(0, 12)})`);
@@ -35,13 +54,6 @@ export async function run({ file = DEFAULT_SNAPSHOT, expectSha256, current } = {
   }
   out.push('이 명령은 보기만 했고 어떤 파일·정책도 고치지 않았습니다.');
   return { code: 0, lines: out };
-}
-
-async function liveInputs() {
-  const { RULE_IDS, decide } = await import('../src/decider.mjs');
-  const config = JSON.parse(await readFile(resolve(root, 'aleph.config.json'), 'utf8'));
-  const { normal, suspicious } = fixtureRequests();
-  return { ruleIds: RULE_IDS, allowedRoutes: config.allowedRoutes, decide, baseRequest: normal, anomalyRequest: suspicious };
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
