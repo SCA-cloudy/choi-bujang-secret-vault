@@ -50,7 +50,7 @@ async function anonymousApiResult(app, path, init = {}) {
 }
 
 export async function runAttackChecks(config) {
-  if (![1, 2, 3, 4, 5, 6, 7, 8].includes(config.step)) {
+  if (![1, 2, 3, 4, 5, 6, 7, 8, 9].includes(config.step)) {
     throw new Error('이 단계의 공격 점검을 src/attack-check.mjs에 구현해 주세요.');
   }
   const app = checkedAppUrl(config);
@@ -181,6 +181,31 @@ export async function runAttackChecks(config) {
       { attackId: 'decider_unknown_path_denied',
         expected: '표에 없는 경로와 :id 자리의 기능 이름(/notes/export) 가상 요청은 deny (판정기 함수를 직접 부른 연습)',
         observed: await tryZone('GET', 'GET /notes/:id', '/notes/export') },
+    );
+    if (config.step === 8) return results;
+
+    // 9단계: 탐지 함수(src/detect.mjs)를 가상 조회 사건으로 직접 불러 본다.
+    // 8단계와 같이 이 컴퓨터에서 함수를 부른 연습이며, 사이트로 보낸 요청도 심판의 판정도 아니다.
+    // 반 엔진이 사건을 전달하고 실제로 접속을 회수하는 경로와 경과 시간은 이 점검으로 확인하지 못한다.
+    const { detect } = await import('./detect.mjs');
+    const startMs = Date.UTC(2026, 9, 1, 0, 0, 0);
+    const virtualReads = count => Array.from({ length: count }, (_, index) => ({
+      at: new Date(startMs + index * 2000).toISOString(), method: 'GET', identity: { sub: 'learner_fixture' },
+    }));
+    const tryDetect = count => {
+      const answer = detect(virtualReads(count));
+      return `탐지 함수에 넣은 가상 사건(${count}건)의 결과: ${answer.action}${answer.reasonCode ? ` ${answer.reasonCode}` : ''}`;
+    };
+    results.push(
+      { attackId: 'detect_normal_reads_observed',
+        expected: '같은 사용자의 가상 조회 30건은 observe (탐지 함수를 직접 부른 연습)',
+        observed: tryDetect(30) },
+      { attackId: 'detect_limit_120_observed',
+        expected: '10분 안에 정확히 120건은 회수 제안 대상이 아니라 observe (탐지 함수를 직접 부른 연습)',
+        observed: tryDetect(120) },
+      { attackId: 'detect_burst_read_proposed',
+        expected: '10분 안에 121건은 propose_revocation과 이유 코드 burst_read (탐지 함수를 직접 부른 연습)',
+        observed: tryDetect(121) },
     );
     return results;
   }

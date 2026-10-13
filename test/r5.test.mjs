@@ -317,3 +317,34 @@ test('step 8 attack check keeps the step 7 records and adds the local zone rule 
     globalThis.fetch = originalFetch;
   }
 });
+
+test('step 9 attack check keeps the step 8 records and adds the local detection results', async () => {
+  const originalFetch = globalThis.fetch;
+  const requested = [];
+  try {
+    globalThis.fetch = async (url, init) => {
+      requested.push(`${init.method ?? 'GET'} ${new URL(String(url)).pathname}`);
+      if (String(url).endsWith('/data.json')) return new Response('Not found', { status: 404 });
+      return new Response(JSON.stringify({ error: 'LOGIN_REQUIRED' }), {
+        status: 401, headers: { 'content-type': 'application/json' },
+      });
+    };
+    const results = await runAttackChecks({
+      ...config, step: 9, originalApiUrl: 'https://example-project.supabase.co/rest/v1/notes',
+    });
+    assert.equal(requested.length, 6);
+    assert.equal(results.length, 19);
+    assert.deepEqual(results.map(item => item.attackId).slice(16), [
+      'detect_normal_reads_observed', 'detect_limit_120_observed', 'detect_burst_read_proposed',
+    ]);
+    assert.match(results[16].observed, /\(30건\)의 결과: observe$/u);
+    assert.match(results[17].observed, /\(120건\)의 결과: observe$/u);
+    assert.match(results[18].observed, /\(121건\)의 결과: propose_revocation burst_read$/u);
+    for (const item of results) {
+      assert.deepEqual(Object.keys(item).sort(), ['attackId', 'expected', 'observed']);
+      assert.ok(item.expected.length <= 300 && item.observed.length <= 300);
+    }
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
