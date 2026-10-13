@@ -20,7 +20,7 @@
 
 ## 6단계 현재 상태 (등록한 기기만 자료실에 들어옵니다, 2026-10-13)
 
-`src/decider.mjs`(판정기)에 규칙 하나를 더했습니다. 규칙 ID는 `device_registered`이고 `RULE_IDS`는 `['device_registered']` 하나입니다(시작 틀의 `starter.deny`는 더 이상 쓰지 않아 저장점에서 뺐습니다). 요청의 `deviceRegistered`가 정확히 `true`일 때만 `allow`(이유 코드 `approved`)를 돌려주고, `false`·값 없음·그 밖의 값은 `deny`와 이유 코드 `device_not_registered`로 거부합니다. 응답은 계약의 다섯 항목(`schema`, `requestId`, `decision`, `reasonCode`, `ruleIds`)만 담습니다. `docs/DECIDER_REQUEST.md`에 있는 요청 항목만 읽고, 5단계 자료실(`api`, `public`, 다른 `src` 파일)과 보너스 XDR 폴더는 바꾸지 않았습니다. 이번 단계에는 따로 설치할 접속 프로그램이 없고, 인증서·CA·서명 키·기기 개인키는 만들거나 저장소에 넣지 않았습니다. 이 규칙은 기기 등록 여부만 보며, 읽기와 쓰기를 따로 가르는 규칙은 아직 없습니다.
+`src/decider.mjs`(판정기)에 규칙 하나를 더했습니다. 규칙 ID는 `device_registered`이고 `RULE_IDS`는 `['device_registered']` 하나입니다(시작 틀의 `starter.deny`는 더 이상 쓰지 않아 저장점에서 뺐습니다). 요청의 `deviceRegistered`가 정확히 `true`이고 `method`가 `GET`(읽기)일 때만 `allow`(이유 코드 `approved`)를 돌려줍니다. `deviceRegistered`가 `false`·값 없음·그 밖의 값이면 `deny`와 이유 코드 `device_not_registered`로, 등록 기기라도 읽기가 아닌 동작(추가·수정·삭제 등)이면 `deny`와 이유 코드 `starter_not_ready`로 거부합니다. 응답은 계약의 다섯 항목(`schema`, `requestId`, `decision`, `reasonCode`, `ruleIds`)만 담습니다. `docs/DECIDER_REQUEST.md`에 있는 요청 항목만 읽고, 5단계 자료실(`api`, `public`, 다른 `src` 파일)과 보너스 XDR 폴더는 바꾸지 않았습니다. 이번 단계에는 따로 설치할 접속 프로그램이 없고, 인증서·CA·서명 키·기기 개인키는 만들거나 저장소에 넣지 않았습니다. 이 규칙은 기기 등록 여부와 읽기(GET) 여부만 봅니다. 허용 경로 검사는 반 엔진이 먼저 합니다.
 
 **확인 순서** (저장소 루트에서)
 
@@ -38,6 +38,7 @@ node --input-type=module -e "import {randomUUID} from 'node:crypto';import {fixt
 |---|---|---|
 | `npm run decider:test` | 등록 기기의 정상 요청 통과, 미등록 기기의 가상 요청 통과 | 실행함 (연습용 가상 요청, 2026-10-13) |
 | 두 요청의 응답 내용 | 등록 기기 `allow`·`approved`, 미등록 기기 `deny`·`device_not_registered` | 실행함 (연습용 가상 요청, 2026-10-13) |
+| 등록 기기의 읽기가 아닌 요청(POST·PUT·DELETE, method 없음, 소문자 get) | 모두 `deny`·`starter_not_ready` | 실행함 (연습용 가상 요청, 2026-10-13) |
 | 등록 기기에서 기존 화면이 열리는지 | 배포 사이트에서 직접 확인 | 미실행 |
 | 미등록 기기의 실제 접속 시도 | 심판이 맡는 부분 | 미실행 |
 | `npm run bundle` | 학생 PC에서 실행한 뒤 기록 (사이트에 접속하는 점검이 있어 클라우드에서는 실행하지 않음) | 미실행 |
@@ -45,7 +46,7 @@ node --input-type=module -e "import {randomUUID} from 'node:crypto';import {fixt
 
 `aleph.config.json`의 `step`은 5 그대로입니다. 이번 단계는 판정기 규칙만 더했고, 5단계 자기 점검(`src/attack-check.mjs`)은 1~5단계 값만 받습니다.
 
-`decider:test`는 가상 요청으로 하는 연습이며 심판 판정이나 실제 접속 차단의 증거가 아닙니다. 허용에 쓰는 이유 코드 `approved`가 운영 등록부의 허용 코드에 있는지는 이 저장소에서 확인하지 못했습니다.
+`decider:test`는 가상 요청으로 하는 연습이며 심판 판정이나 실제 접속 차단의 증거가 아닙니다. 허용에 쓰는 이유 코드 `approved`와 읽기가 아닌 동작을 거부할 때 쓰는 `starter_not_ready`가 운영 등록부의 허용 코드에 있는지는 이 저장소에서 확인하지 못했습니다(`starter_not_ready`는 시작 틀이 원래 쓰던 코드라서 골랐습니다).
 
 ## 5단계 현재 상태
 
