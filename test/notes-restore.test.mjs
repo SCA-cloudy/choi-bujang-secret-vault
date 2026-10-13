@@ -113,7 +113,13 @@ test('시험 계정 B: 메모를 변조한 뒤 복구하면 사본의 ID·소유
   const other = JSON.stringify(ctx.store.rows.get(IDA));
   const result = await call(ctx.restore, { body: { id: IDB } });
   assert.equal(result.statusCode, 200);
-  assert.deepEqual(result.body, { id: IDB, restored: 'updated', contentSha256: original });
+  assert.deepEqual(result.body, {
+    id: IDB, restored: 'updated', contentSha256: original,
+    backupSha256: original, previousSha256: noteContentSha256('변조', '변조된 내용'),
+    changes: { title: true, content: true }, verified: true,
+  });
+  const text = JSON.stringify(result.body);
+  for (const secret of ['SAMPLE_B', '원본 제목', '변조된 내용']) assert.ok(!text.includes(secret), secret); // 본문·제목은 응답에 없다
   const row = ctx.store.rows.get(IDB);
   assert.deepEqual([row.id, row.owner_id, noteContentSha256(row.title, row.content)], [IDB, B, original]);
   assert.equal(JSON.stringify(ctx.store.rows.get(IDA)), other);   // 다른 메모는 그대로
@@ -128,11 +134,17 @@ test('시험 계정 B: 메모를 지운 뒤 복구하면 같은 ID·소유자·�
   const result = await call(ctx.restore, { body: { id: IDB.toUpperCase() } });
   assert.equal(result.statusCode, 200);
   assert.equal(result.body.restored, 'recreated');
+  assert.equal(result.body.previousSha256, null); // 지워져 있었으므로 복구 전 값이 없다
+  assert.deepEqual(result.body.changes, { title: true, content: true });
+  assert.equal(result.body.verified, true);
   const row = ctx.store.rows.get(IDB);
   assert.deepEqual([row.owner_id, row.title, row.content], [B, 'B 원본 제목', 'B 원본 내용 SAMPLE_B']);
   assert.equal(ctx.store.rows.size, 2);
   // 다시 호출해도 같은 결과(이미 같은 내용이면 그대로)
-  assert.equal((await call(ctx.restore, { body: { id: IDB } })).body.restored, 'updated');
+  const again = await call(ctx.restore, { body: { id: IDB } });
+  assert.equal(again.body.restored, 'updated');
+  assert.deepEqual(again.body.changes, { title: false, content: false }); // 이미 같아서 바뀐 항목이 없다
+  assert.equal(again.body.previousSha256, again.body.backupSha256);
 });
 
 test('남이 B의 메모를 복구하려 하면 404이고 아무것도 바뀌지 않는다', async () => {

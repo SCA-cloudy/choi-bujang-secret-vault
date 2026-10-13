@@ -7,6 +7,7 @@
 // - 쓰기 직전에 사본을 한 번 더 읽어 다시 검증합니다. 처음 검증한 사본과 다르거나 읽지 못하면 메모를 바꾸지 않고 409입니다.
 // - 같은 ID의 메모가 이미 다른 사람 것이면 거부합니다. 바꾸는 곳은 그 한 행뿐이며 다른 메모, 사본 표, 서버 기록은 지우거나 고치지 않습니다.
 // - 되돌린 뒤 메모를 다시 읽어 ID·소유자·내용 해시가 사본과 같은지 확인하고, 다르면 원래 상태로 돌려놓고 실패로 답합니다.
+// - 성공 응답에는 복원한 버전(사본 해시), 복구 전 해시, 바뀐 항목(title·content 참/거짓), 다시 읽어 확인했는지(verified)를 담습니다. 제목·본문은 담지 않습니다.
 // - 서버 기록에는 짧은 이유 코드만 남기고 사용자 ID·토큰·메모 내용은 남기지 않습니다.
 import { checkBackupRow, noteContentSha256 } from './note-backup.mjs';
 import { createSupabaseStore, defaultVerifyAuthorization } from './notes-api.mjs';
@@ -76,6 +77,10 @@ export function createRestoreHandler({ verifyAuthorization, store }) {
       const current = live ? await store.get(id, ownerId) : null;
       const prior = current ? { title: current.title, content: current.content } : null;
       const fields = { title: backup.title, content: backup.content };
+      // 복구 전 상태: 응답에 복구 전 해시와 바뀔 항목만 담기 위해 쓰기 전에 계산한다(제목·본문은 담지 않는다).
+      let previousSha256 = null;
+      try { previousSha256 = current ? noteContentSha256(current.title, current.content) : null; } catch { previousSha256 = null; }
+      const changes = { title: !current || current.title !== backup.title, content: !current || current.content !== backup.content };
       if (preview) {
         // 실행 전 보여 주기: 사본 검증은 이미 통과했다. 아무것도 쓰지 않고, 본문 대신 해시와 바뀔 항목만 알려 준다.
         let currentSha256 = null;
@@ -123,7 +128,11 @@ export function createRestoreHandler({ verifyAuthorization, store }) {
         return response.status(500).json({ error: 'RESTORE_FAILED' });
       }
       log(`복구 결과=${action}`);
-      return response.status(200).json({ id, restored: action, contentSha256: verdict.sha256 });
+      // 복원한 버전(사본 해시)·복구 전 해시·바뀐 항목·사본과 같은지 다시 읽어 확인했는지를 알려 준다.
+      return response.status(200).json({
+        id, restored: action, contentSha256: verdict.sha256,
+        backupSha256: verdict.sha256, previousSha256, changes, verified: true,
+      });
     } catch (error) {
       log(`처리하지 못했습니다. ${String(error?.message ?? '').slice(0, 40)}`);
       return response.status(500).json({ error: 'NOTES_UNAVAILABLE' });

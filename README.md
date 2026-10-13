@@ -30,7 +30,7 @@
 
 **미리 보기(실행 전 보여 주기):** `"preview": true`이면 로그인·소유자·사본 검증(ID·소유자·내용 해시)을 실제 복구와 똑같이 거친 뒤 **아무것도 쓰지 않고** `200 {"id", "preview": true, "action": "update"|"recreate"|"none", "backupSha256", "currentSha256", "changes": {"title", "content"}}`만 알려 줍니다. 복원할 버전은 사본 해시(`backupSha256`)이고, 바뀔 항목은 `action`(있던 메모를 되돌림 / 지운 메모를 다시 만듦 / 이미 같아서 바꿀 것 없음)과 `changes`입니다. 메모 제목·본문은 응답에 싣지 않습니다. 사본이 없거나 검증에 실패하면 미리 보기도 `404`·`409`로 멈춥니다.
 
-**응답:** 성공은 `200 {"id", "restored": "updated"|"recreated", "contentSha256"}`입니다. `401 LOGIN_REQUIRED`(로그인 없음), `405`(POST 외), `400 INVALID_RESTORE_REQUEST·INVALID_ID`(본문 모양), `403 OWNER_CHANGE_FORBIDDEN`(본문에 소유자 이름), `404 NOT_FOUND`(남의 메모·사본 없음·같은 ID가 남의 메모, 구별하지 않음), `409 BACKUP_INVALID`(사본의 내용 해시가 맞지 않음), `409 RESTORE_CONFLICT`, `500 RESTORE_FAILED`(되돌린 뒤 검증 실패, 원래대로 돌려놓음)입니다.
+**응답:** 성공은 `200 {"id", "restored": "updated"|"recreated", "contentSha256", "backupSha256", "previousSha256", "changes": {"title", "content"}, "verified": true}`입니다. `backupSha256`은 복원한 버전(사본 해시), `previousSha256`은 복구 전 해시(지워져 있었으면 `null`), `changes`는 바뀐 항목, `verified`는 쓴 뒤 다시 읽어 사본과 같은지 확인했다는 뜻입니다. 제목·본문은 응답에 없습니다. `401 LOGIN_REQUIRED`(로그인 없음), `405`(POST 외), `400 INVALID_RESTORE_REQUEST·INVALID_ID`(본문 모양), `403 OWNER_CHANGE_FORBIDDEN`(본문에 소유자 이름), `404 NOT_FOUND`(남의 메모·사본 없음·같은 ID가 남의 메모, 구별하지 않음), `409 BACKUP_INVALID`(사본의 내용 해시가 맞지 않음), `409 RESTORE_CONFLICT`, `500 RESTORE_FAILED`(되돌린 뒤 검증 실패, 원래대로 돌려놓음)입니다.
 
 **비공개 사본:** DB의 `notes_backup` 표입니다(`supabase/005_notes_backup.sql`, 학생이 Supabase SQL Editor에서 직접 실행). 메모를 새로 만들 때 서버가 처음 내용 한 벌을 저장하고, 그 뒤 수정·삭제와 상관없이 그대로 둡니다. 서버 키에도 읽기·추가 권한만 주어 사본을 고치거나 지울 수 없고, 브라우저 역할에는 권한이 없습니다. 사본에 메모 본문이 있으므로 공개 저장소에는 올리지 않습니다. 이미 있던 메모는 SQL이 같은 식으로 채웁니다.
 
@@ -42,6 +42,7 @@
 |---|---|---|
 | 복구 시험 12개 (시험 계정 B 메모로만) | 변조 뒤 복구 `updated`, 삭제 뒤 복구 `recreated`, 해시 일치, 남의 요청 404, 사본 변조 409, 되돌린 뒤 검증 실패 시 원상 복구 | 실행함 (클라우드, 2026-10-13) |
 | 복구 경로 미리 보기 시험 3개 (`test:restore` 19개 중) | 변조된 메모는 `update`, 지운 메모는 `recreate`, 같으면 `none`으로 알리고 메모·사본이 하나도 바뀌지 않음. 로그인 없음 401, 남의 메모·사본 없음 404, 사본 변조 409, 잘못된 모양 400·403, GET 405는 실제 복구와 같음. 응답에 제목·본문 없음 | 실행함 (클라우드, 2026-10-13) |
+| 복구 성공 응답의 버전·바뀐 항목 시험 (`test:restore` 19개 중 기존 2개를 보강) | 변조 뒤 복구는 `backupSha256`·`previousSha256`·`changes` 둘 다 참·`verified: true`, 지운 뒤 복구는 `previousSha256: null`, 이미 같은 메모는 `changes` 둘 다 거짓. 응답에 제목·본문 없음 | 실행함 (클라우드, 2026-10-13) |
 | 사본 저장 직후 다시 읽기 시험 2개 (`test:restore` 19개 중) | 메모를 만들 때 사본을 저장한 직후 다시 읽어 ID·소유자·내용 해시를 검증함. 정상이면 경고 없음, 틀리거나 사라졌거나 읽기에 실패해도 메모 추가는 막지 않고 `BACKUP_VERIFY_FAILED`(읽기 실패는 `BACKUP_SAVE_FAILED`)만 서버 기록에 남기며 메모 내용·사용자 ID는 남기지 않음 | 실행함 (클라우드, 2026-10-13) |
 | 쓰기 직전 사본 다시 읽기 시험 2개 (`test:restore` 19개 중) | 실제 복구는 사본을 두 번(검증 때·쓰기 직전), 미리 보기는 한 번 읽음. 두 번째 읽기에서 사본이 바뀌었거나(해시 불일치, 해시는 맞지만 처음과 다른 내용), 사라졌거나, 읽기에 실패하면 `409 BACKUP_INVALID`로 멈추고 메모·사본이 하나도 바뀌지 않음 | 실행함 (클라우드, 2026-10-13) |
 | 배포된 사이트에서 `preview: true` 요청 (배포 `1dfbc4a`) | 계정 A가 자기 메모(사본과 같음)에 보내면 `200`, `action: none`. B가 A의 메모 번호로 보내면 `404`. 변조된 메모에 대한 `update` 응답은 배포 사이트에서 미실행 | 일부 실행함 (콘솔, 2026-10-13) |
