@@ -4,6 +4,7 @@
 // - 미리 보기는 사본을 같은 방법으로 검증한 뒤 복원할 버전(사본 해시)과 바뀔 항목만 알려 주고 아무것도 바꾸지 않습니다.
 // - 사본은 "요청한 ID + 서버가 확인한 로그인 사용자"로만 찾습니다. 그래서 남의 메모, 없는 사본은 같은 404이고 존재 여부도 알려 주지 않습니다.
 // - 되돌리기 전에 사본의 ID·소유자·내용 해시를 대조합니다. 하나라도 다르면 메모를 바꾸지 않습니다.
+// - 쓰기 직전에 사본을 한 번 더 읽어 다시 검증합니다. 처음 검증한 사본과 다르거나 읽지 못하면 메모를 바꾸지 않고 409입니다.
 // - 같은 ID의 메모가 이미 다른 사람 것이면 거부합니다. 바꾸는 곳은 그 한 행뿐이며 다른 메모, 사본 표, 서버 기록은 지우거나 고치지 않습니다.
 // - 되돌린 뒤 메모를 다시 읽어 ID·소유자·내용 해시가 사본과 같은지 확인하고, 다르면 원래 상태로 돌려놓고 실패로 답합니다.
 // - 서버 기록에는 짧은 이유 코드만 남기고 사용자 ID·토큰·메모 내용은 남기지 않습니다.
@@ -85,6 +86,17 @@ export function createRestoreHandler({ verifyAuthorization, store }) {
           id, preview: true, action, backupSha256: verdict.sha256, currentSha256,
           changes: { title: !current || current.title !== backup.title, content: !current || current.content !== backup.content },
         });
+      }
+      // 쓰기 직전에 사본을 다시 읽어 같은 방법으로 검증한다. 처음 검증한 사본과 다르거나 읽지 못하면 아무것도 쓰지 않는다.
+      let recheck = { ok: false };
+      let again = null;
+      try {
+        again = await store.getBackup(id, ownerId);
+        recheck = checkBackupRow(again, { id, ownerId });
+      } catch { recheck = { ok: false }; }
+      if (!recheck.ok || recheck.sha256 !== verdict.sha256 || again.title !== backup.title || again.content !== backup.content) {
+        log('복구 거부 사유=BACKUP_RECHECK_FAILED');
+        return response.status(409).json({ error: 'BACKUP_INVALID' });
       }
       let action;
       if (live) {

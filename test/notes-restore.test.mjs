@@ -294,3 +294,42 @@ test('미리 보기도 실제 복구와 같은 검사를 먼저 통과해야 한
   assert.equal(real.statusCode, 200);
   assert.equal(real.body.restored, 'updated');
 });
+
+test('쓰기 직전에 사본을 다시 읽어 검증한다: 실제 복구는 두 번, 미리 보기는 한 번 읽는다', async () => {
+  const ctx = await seedB();
+  await call(ctx.notes.item, { method: 'PUT', query: { id: IDB }, body: { title: '변조', body: '변조' } });
+  const realGet = ctx.store.getBackup.bind(ctx.store);
+  let reads = 0;
+  ctx.store.getBackup = async (id, ownerId) => { reads += 1; return realGet(id, ownerId); };
+  assert.equal((await call(ctx.restore, { body: { id: IDB, preview: true } })).statusCode, 200);
+  assert.equal(reads, 1);
+  reads = 0;
+  const result = await call(ctx.restore, { body: { id: IDB } });
+  assert.equal(result.statusCode, 200);
+  assert.equal(result.body.restored, 'updated');
+  assert.equal(reads, 2);
+});
+
+test('다시 읽은 사본이 처음과 다르거나 읽지 못하면 메모를 바꾸지 않고 409로 멈춘다', async () => {
+  for (const mode of ['changed', 'tampered', 'throws', 'missing']) {
+    const ctx = await seedB();
+    await call(ctx.notes.item, { method: 'PUT', query: { id: IDB }, body: { title: '변조', body: '변조' } });
+    const realGet = ctx.store.getBackup.bind(ctx.store);
+    let reads = 0;
+    ctx.store.getBackup = async (id, ownerId) => {
+      reads += 1;
+      const row = await realGet(id, ownerId);
+      if (reads < 2) return row;
+      if (mode === 'throws') throw new Error('읽기 실패');
+      if (mode === 'missing') return null;
+      if (mode === 'tampered') return { ...row, content: '두 번째 읽기에서 바뀐 내용' }; // 해시가 안 맞는 사본
+      const other = { title: '다른 제목', content: '다른 내용' };
+      return { ...row, ...other, content_sha256: noteContentSha256(other.title, other.content) }; // 해시는 맞지만 처음 사본과 다른 사본
+    };
+    const before = snapshotOf(ctx.store);
+    const result = await call(ctx.restore, { body: { id: IDB } });
+    assert.equal(result.statusCode, 409, mode);
+    assert.deepEqual(result.body, { error: 'BACKUP_INVALID' }, mode);
+    assert.equal(snapshotOf(ctx.store), before, mode); // 메모도 사본도 하나도 바뀌지 않음
+  }
+});
