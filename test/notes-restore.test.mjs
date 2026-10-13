@@ -333,3 +333,40 @@ test('다시 읽은 사본이 처음과 다르거나 읽지 못하면 메모를 
     assert.equal(snapshotOf(ctx.store), before, mode); // 메모도 사본도 하나도 바뀌지 않음
   }
 });
+
+test('사본을 저장한 직후 다시 읽어 검증하고, 정상이면 아무 경고도 남기지 않는다', async () => {
+  const store = memoryStore();
+  const realGet = store.getBackup.bind(store);
+  let reads = 0;
+  store.getBackup = async (id, ownerId) => { reads += 1; return realGet(id, ownerId); };
+  const ctx = build(store);
+  const lines = [];
+  const silent = console.error; console.error = (...args) => lines.push(args.join(' '));
+  let result;
+  try { result = fakeResponse(); await ctx.notes.collection({ method: 'POST', headers: { authorization: 'Bearer b.b.b' }, body: { id: IDB, title: 'B 원본 제목', body: 'B 원본 내용 SAMPLE_B' } }, result); } finally { console.error = silent; }
+  assert.equal(result.statusCode, 201);
+  assert.equal(reads, 1);
+  assert.ok(!lines.join('\n').includes('BACKUP_'));
+});
+
+test('저장 직후 다시 읽은 사본이 틀리거나 읽지 못해도 메모 추가는 막지 않고 이유 코드만 남긴다', async () => {
+  for (const mode of ['tampered', 'missing', 'throws']) {
+    const store = memoryStore();
+    const realGet = store.getBackup.bind(store);
+    store.getBackup = async (id, ownerId) => {
+      if (mode === 'throws') throw new Error('읽기 실패');
+      const row = await realGet(id, ownerId);
+      return mode === 'missing' ? null : { ...row, content: '저장 뒤 바뀐 내용' };
+    };
+    const ctx = build(store);
+    const lines = [];
+    const silent = console.error; console.error = (...args) => lines.push(args.join(' '));
+    let result;
+    try { result = fakeResponse(); await ctx.notes.collection({ method: 'POST', headers: { authorization: 'Bearer b.b.b' }, body: { id: IDB, title: 'B 원본 제목', body: 'B 원본 내용 SAMPLE_B' } }, result); } finally { console.error = silent; }
+    assert.equal(result.statusCode, 201, mode);
+    assert.ok(store.rows.has(IDB), mode);
+    const text = lines.join('\n');
+    assert.match(text, mode === 'throws' ? /BACKUP_SAVE_FAILED/ : /BACKUP_VERIFY_FAILED/, mode);
+    for (const secret of ['SAMPLE_B', '원본', B]) assert.ok(!text.includes(secret), `${mode}:${secret}`);
+  }
+});

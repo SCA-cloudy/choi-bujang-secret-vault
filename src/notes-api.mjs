@@ -9,10 +9,11 @@
 //   거부 사유 코드(NOT_OWNER 등)만 짧게 서버 기록에 남긴다. 사용자 ID·토큰·메모 내용은 기록하지 않는다.
 // - 10단계 제작 3: 메모를 새로 만들 때 서버가 비공개 사본(notes_backup) 한 벌을 함께 저장한다(고치거나 지우지 않는 첫 한 벌).
 //   사본 저장에 실패해도 메모 추가는 막지 않고 이유 코드만 기록한다. 복구는 src/notes-restore.mjs가 맡는다.
+//   저장한 사본은 바로 다시 읽어 ID·소유자·내용 해시를 검증하고, 맞지 않으면 BACKUP_VERIFY_FAILED만 기록한다.
 // - SUPABASE_URL과 SUPABASE_SECRET_KEY는 Vercel 환경변수에서만 읽고, 어디에도 내보내지 않는다.
 import { randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
-import { noteContentSha256 } from './note-backup.mjs';
+import { checkBackupRow, noteContentSha256 } from './note-backup.mjs';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iu;
 const MAX_TITLE = 200;
@@ -99,7 +100,16 @@ export function createNotesHandlers({ verifyAuthorization, store }) {
       const result = await store.create({ id, ownerId: identity.userId, ...fields });
       if (result?.conflict) return response.status(409).json({ error: 'ID_IN_USE' });
       try {
-        await store.saveBackup?.({ id, ownerId: identity.userId, ...fields, sha256: noteContentSha256(fields.title, fields.content) });
+        const sha256 = noteContentSha256(fields.title, fields.content);
+        const saved = await store.saveBackup?.({ id, ownerId: identity.userId, ...fields, sha256 });
+        // 저장한 사본을 바로 다시 읽어 ID·소유자·내용 해시를 검증한다. 방금 저장한 사본이면 방금 계산한 해시와도 같아야 한다.
+        // 검증에 실패해도 메모 추가는 막지 않고 이유 코드만 기록한다(그 사본은 복구 때 해시 검사에서 걸러진다).
+        if (store.getBackup) {
+          const verdict = checkBackupRow(await store.getBackup(id, identity.userId), { id, ownerId: identity.userId });
+          if (!verdict.ok || (saved?.exists !== true && verdict.sha256 !== sha256)) {
+            console.error('notes: 백업 검증 실패=BACKUP_VERIFY_FAILED');
+          }
+        }
       } catch {
         console.error('notes: 백업 실패=BACKUP_SAVE_FAILED');
       }
