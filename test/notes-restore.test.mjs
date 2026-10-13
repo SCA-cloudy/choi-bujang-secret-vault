@@ -382,3 +382,37 @@ test('저장 직후 다시 읽은 사본이 틀리거나 읽지 못해도 메모
     for (const secret of ['SAMPLE_B', '원본', B]) assert.ok(!text.includes(secret), `${mode}:${secret}`);
   }
 });
+
+test('실행 전에 보여 준 버전(expectedBackupSha256)과 같을 때만 복구하고, 다르면 아무것도 쓰지 않는다', async () => {
+  const ctx = await seedB();
+  await call(ctx.notes.item, { method: 'PUT', query: { id: IDB }, body: { title: '변조', body: '변조' } });
+  const shown = (await call(ctx.restore, { body: { id: IDB, preview: true } })).body;
+  assert.equal(shown.action, 'update');
+  const before = snapshotOf(ctx.store);
+  const wrong = await call(ctx.restore, { body: { id: IDB, expectedBackupSha256: 'f'.repeat(64) } });
+  assert.equal(wrong.statusCode, 409);
+  assert.deepEqual(wrong.body, { error: 'VERSION_MISMATCH' });
+  assert.equal(snapshotOf(ctx.store), before); // 메모도 사본도 그대로
+  const ok = await call(ctx.restore, { body: { id: IDB, expectedBackupSha256: shown.backupSha256 } });
+  assert.equal(ok.statusCode, 200);
+  assert.equal(ok.body.restored, 'updated');
+  assert.equal(ok.body.backupSha256, shown.backupSha256);
+  assert.equal(ctx.store.rows.get(IDB).title, 'B 원본 제목');
+});
+
+test('expectedBackupSha256은 모양이 맞아야 하고, 남의 메모는 값이 맞아도 404이며, 값 없이도 기존처럼 복구된다', async () => {
+  const ctx = await seedB();
+  await call(ctx.notes.item, { method: 'PUT', query: { id: IDB }, body: { title: '변조', body: '변조' } });
+  const before = snapshotOf(ctx.store);
+  for (const bad of ['abc', 123, null, 'F'.repeat(64), ['x']]) {
+    assert.equal((await call(ctx.restore, { body: { id: IDB, expectedBackupSha256: bad } })).statusCode, 400);
+  }
+  const hash = noteContentSha256('B 원본 제목', 'B 원본 내용 SAMPLE_B');
+  const other = await call(ctx.restore, { token: 'Bearer a.a.a', body: { id: IDB, expectedBackupSha256: hash } });
+  assert.equal(other.statusCode, 404);
+  assert.equal(snapshotOf(ctx.store), before);
+  const preview = await call(ctx.restore, { body: { id: IDB, preview: true, expectedBackupSha256: 'f'.repeat(64) } });
+  assert.equal(preview.statusCode, 409); // 미리 보기도 같은 검사를 한다
+  assert.equal(snapshotOf(ctx.store), before);
+  assert.equal((await call(ctx.restore, { body: { id: IDB } })).body.restored, 'updated'); // 값 없이 보내면 기존 동작
+});

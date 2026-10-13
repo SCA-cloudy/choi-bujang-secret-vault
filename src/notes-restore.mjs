@@ -1,6 +1,6 @@
 // 10단계 제작 3: POST /api/restore — 비공개 백업 표(notes_backup)의 사본으로 "내 메모 한 건"만 되돌립니다.
 // - 먼저 로그인 검사를 통과해야 합니다. 통과하지 못하면 아무것도 보여 주지 않고 401입니다.
-// - 요청 본문은 {"id": "<메모 ID>"} 하나이고, 쓰지 않고 미리 보기만 하려면 "preview": true 를 더합니다. 소유자·role·그 밖의 값은 읽지 않으며, 소유자 이름이 있으면 403으로 거부합니다.
+// - 요청 본문은 {"id": "<메모 ID>"} 하나이고, 쓰지 않고 미리 보기만 하려면 "preview": true 를, 미리 보기가 알려 준 버전으로만 실행하려면 "expectedBackupSha256" 를 더합니다. 소유자·role·그 밖의 값은 읽지 않으며, 소유자 이름이 있으면 403으로 거부합니다.
 // - 미리 보기는 사본을 같은 방법으로 검증한 뒤 복원할 버전(사본 해시)과 바뀔 항목만 알려 주고 아무것도 바꾸지 않습니다.
 // - 사본은 "요청한 ID + 서버가 확인한 로그인 사용자"로만 찾습니다. 그래서 남의 메모, 없는 사본은 같은 404이고 존재 여부도 알려 주지 않습니다.
 // - 되돌리기 전에 사본의 ID·소유자·내용 해시를 대조합니다. 하나라도 다르면 메모를 바꾸지 않습니다.
@@ -46,9 +46,14 @@ export function createRestoreHandler({ verifyAuthorization, store }) {
     const value = readJsonBody(request);
     if (!value) return response.status(400).json({ error: 'INVALID_RESTORE_REQUEST' });
     if (OWNER_FIELDS.some(name => name in value)) return response.status(403).json({ error: 'OWNER_CHANGE_FORBIDDEN' });
-    // 허용하는 이름은 id 와, 쓰지 않고 미리 보기만 하는 preview(true/false) 둘뿐이다.
+    // 허용하는 이름은 id, 쓰지 않고 미리 보기만 하는 preview(true/false),
+    // 미리 보기가 알려 준 버전(사본 해시)으로만 실행하게 하는 expectedBackupSha256 셋뿐이다.
     const keys = Object.keys(value);
-    if (!keys.includes('id') || keys.some(name => name !== 'id' && name !== 'preview')) {
+    if (!keys.includes('id') || keys.some(name => name !== 'id' && name !== 'preview' && name !== 'expectedBackupSha256')) {
+      return response.status(400).json({ error: 'INVALID_RESTORE_REQUEST' });
+    }
+    if ('expectedBackupSha256' in value
+        && (typeof value.expectedBackupSha256 !== 'string' || !/^[0-9a-f]{64}$/u.test(value.expectedBackupSha256))) {
       return response.status(400).json({ error: 'INVALID_RESTORE_REQUEST' });
     }
     if ('preview' in value && typeof value.preview !== 'boolean') {
@@ -72,6 +77,11 @@ export function createRestoreHandler({ verifyAuthorization, store }) {
       if (live && live.owner_id !== ownerId) {
         log('복구 거부 사유=LIVE_OWNED_BY_OTHER');
         return response.status(404).json({ error: 'NOT_FOUND' });
+      }
+      // 실행 전에 보여 준 버전과 지금 검증한 사본이 같을 때만 계속한다. 다르면 아무것도 쓰지 않는다.
+      if ('expectedBackupSha256' in value && value.expectedBackupSha256 !== verdict.sha256) {
+        log('복구 거부 사유=VERSION_MISMATCH');
+        return response.status(409).json({ error: 'VERSION_MISMATCH' });
       }
       // 되돌리기 전 값을 복사해 둔다(검증에 실패하면 이 값으로 돌려놓는다).
       const current = live ? await store.get(id, ownerId) : null;
