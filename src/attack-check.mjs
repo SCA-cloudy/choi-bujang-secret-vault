@@ -50,13 +50,13 @@ async function anonymousApiResult(app, path, init = {}) {
 }
 
 export async function runAttackChecks(config) {
-  if (![1, 2, 3, 4, 5].includes(config.step)) {
+  if (![1, 2, 3, 4, 5, 6].includes(config.step)) {
     throw new Error('이 단계의 공격 점검을 src/attack-check.mjs에 구현해 주세요.');
   }
   const app = checkedAppUrl(config);
   if (typeof config.sampleMarker !== 'string' || !config.sampleMarker) throw new Error('가상 메모의 확인 표시를 넣어 주세요.');
 
-  if (config.step === 4 || config.step === 5) {
+  if (config.step >= 4) {
     // 이 점검은 로그인 정보 없이 보내는 요청만 한다. 두 번째 계정(B)이 A의 메모를 읽거나 고치는 시험은
     // 로그인이 필요해 여기서 하지 않으며, 화면과 콘솔로 직접 확인한 결과를 README에 따로 적는다.
     // 수정·삭제 점검은 실제로 없는 가짜 메모 번호로만 보내 어떤 메모도 바뀌지 않는다.
@@ -107,6 +107,26 @@ export async function runAttackChecks(config) {
     results.push({ attackId: 'original_api_direct_read',
       expected: '서버 함수를 거치지 않고 원본 주소를 로그인 없이 직접 읽으면 401 또는 403으로 거부, 메모 0건',
       observed: `${publicKey ? '공개 키를 붙여' : '키 없이'} 보낸 요청에서 HTTP ${direct.status}, 오류 문구 ${direct.errorCode}, 가상 메모 ${direct.noteCount}건이 보임` });
+    if (config.step === 5) return results;
+
+    // 6단계: 판정기(src/decider.mjs)의 기기 등록 규칙을 가상 요청으로 직접 불러 본다.
+    // 사이트로 보내는 요청이 아니라 이 컴퓨터에서 판정기 함수를 호출한 결과이며, 심판의 판정이 아니다.
+    const { decide } = await import('./decider.mjs');
+    const tryDevice = async (deviceRegistered, method) => {
+      const answer = await decide({ requestId: globalThis.crypto.randomUUID(), deviceRegistered, method });
+      return `${answer.decision} ${answer.reasonCode}`;
+    };
+    results.push(
+      { attackId: 'decider_unregistered_device_denied',
+        expected: '미등록 기기(deviceRegistered false)의 가상 읽기 요청은 deny와 device_not_registered로 거부 (판정기 함수를 직접 부른 연습)',
+        observed: `판정기에 넣은 가상 요청의 결과: ${await tryDevice(false, 'GET')}` },
+      { attackId: 'decider_registered_read_allowed',
+        expected: '등록 기기(deviceRegistered true)의 가상 읽기 요청은 allow (판정기 함수를 직접 부른 연습)',
+        observed: `판정기에 넣은 가상 요청의 결과: ${await tryDevice(true, 'GET')}` },
+      { attackId: 'decider_registered_write_denied',
+        expected: '등록 기기의 가상 쓰기 요청(POST)은 이 규칙이 허용하지 않아 deny (판정기 함수를 직접 부른 연습)',
+        observed: `판정기에 넣은 가상 요청의 결과: ${await tryDevice(true, 'POST')}` },
+    );
     return results;
   }
 

@@ -220,3 +220,36 @@ test('build identity publishes originalApiUrl only when it is a clean https addr
     assert.throws(() => deploymentIdentity(env, { ...config, step: 5, originalApiUrl: bad }));
   }
 });
+
+test('step 6 attack check keeps the anonymous requests and records the device rule results from the decider', async () => {
+  const originalFetch = globalThis.fetch;
+  const requested = [];
+  try {
+    globalThis.fetch = async (url, init) => {
+      requested.push(`${init.method ?? 'GET'} ${new URL(String(url)).pathname}`);
+      if (String(url).endsWith('/data.json')) return new Response('Not found', { status: 404 });
+      return new Response(JSON.stringify({ error: 'LOGIN_REQUIRED' }), {
+        status: 401, headers: { 'content-type': 'application/json' },
+      });
+    };
+    const results = await runAttackChecks({
+      ...config, step: 6, originalApiUrl: 'https://example-project.supabase.co/rest/v1/notes',
+    });
+    assert.equal(requested.length, 6);
+    assert.deepEqual(results.map(item => item.attackId), [
+      'static_data_json_read', 'anonymous_notes_list_read', 'anonymous_note_create',
+      'anonymous_note_update', 'anonymous_note_delete', 'original_api_direct_read',
+      'decider_unregistered_device_denied', 'decider_registered_read_allowed',
+      'decider_registered_write_denied',
+    ]);
+    assert.match(results[6].observed, /deny device_not_registered/u);
+    assert.match(results[7].observed, /allow approved/u);
+    assert.match(results[8].observed, /^판정기에 넣은 가상 요청의 결과: deny /u);
+    for (const item of results) {
+      assert.deepEqual(Object.keys(item).sort(), ['attackId', 'expected', 'observed']);
+      assert.ok(item.expected.length <= 300 && item.observed.length <= 300);
+    }
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});

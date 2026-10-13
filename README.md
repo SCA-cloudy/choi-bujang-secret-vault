@@ -41,14 +41,17 @@ node --input-type=module -e "import {randomUUID} from 'node:crypto';import {fixt
 | 등록 기기의 읽기가 아닌 요청(POST·PUT·DELETE, method 없음, 소문자 get) | 모두 `deny`·`starter_not_ready` | 실행함 (연습용 가상 요청, 2026-10-13) |
 | 등록 기기에서 기존 화면이 열리는지 | 배포 사이트에서 직접 확인 | 미실행 |
 | 미등록 기기의 실제 접속 시도 | 심판이 맡는 부분 | 미실행 |
-| `npm run bundle` | 학생 PC에서 실행한 뒤 기록 (사이트에 접속하는 점검이 있어 클라우드에서는 실행하지 않음) | 미실행 |
+| `npm run test:r5` | 6단계 자기 점검 시험 포함 10개 통과 | 실행함 (클라우드, 2026-10-13) |
+| `npm run bundle`의 6단계 자기 점검 | 학생 PC에서 실행한 뒤 기록 (사이트에 접속하는 점검이 있어 클라우드에서는 실행하지 않음) | 미실행 |
 | 심판 판정 | 제출 전 | 미실행 |
 
-`aleph.config.json`의 `step`은 5 그대로입니다. 이번 단계는 판정기 규칙만 더했고, 5단계 자기 점검(`src/attack-check.mjs`)은 1~5단계 값만 받습니다.
+`aleph.config.json`의 `step`을 6으로 올렸고, 배포된 `/aleph.json`에도 6으로 나옵니다. 허용 경로(`allowedRoutes`), 로그인 발급자, 원본 API 주소는 5단계와 같습니다. 자기 점검 `src/attack-check.mjs`는 6단계에서 5단계의 로그인 없는 요청 점검 여섯 개를 그대로 보내고, 판정기 함수를 가상 요청으로 직접 불러 본 결과 세 개(미등록 기기 거부, 등록 기기 읽기 허용, 등록 기기 쓰기 거부)를 더 기록합니다. 이 세 개는 사이트로 보낸 요청이 아니라 이 컴퓨터에서 판정기를 부른 연습이며 심판의 판정이 아닙니다.
 
 `decider:test`는 가상 요청으로 하는 연습이며 심판 판정이나 실제 접속 차단의 증거가 아닙니다. 허용에 쓰는 이유 코드 `approved`와 읽기가 아닌 동작을 거부할 때 쓰는 `starter_not_ready`가 운영 등록부의 허용 코드에 있는지는 이 저장소에서 확인하지 못했습니다(`starter_not_ready`는 시작 틀이 원래 쓰던 코드라서 골랐습니다).
 
-## 5단계 현재 상태
+## 5단계 현재 상태 (5단계 시점 기록, 6단계에서 이어짐)
+
+아래의 `step`은 5단계 시점 값입니다. 6단계에서 `step`이 6으로 올랐습니다.
 
 `aleph.config.json`의 `step`은 5이고, `originalApiUrl`은 데이터 원본의 쿼리 없는 HTTPS 주소(`…supabase.co/rest/v1/notes`)입니다. `allowedRoutes`는 4단계와 같은 다섯 경로이며, 이제 배포된 `/aleph.json`에도 함께 나옵니다(`scripts/deployment-identity.mjs`). `judgeIssuer`와 `identityProvider`는 바꾸지 않았습니다.
 
