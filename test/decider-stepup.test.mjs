@@ -11,8 +11,8 @@ const fixture = (signals, recentEvents = [], extra = {}) => ({
 });
 const bulk = [{ kind: 'risk_signal', ageSeconds: 60, count: 20 }];
 
-test('rule ids keep the device rule and add step_up_required', () => {
-  assert.deepEqual([...RULE_IDS], ['device_registered', 'step_up_required']);
+test('rule ids keep the device and step-up rules and add resource_zone', () => {
+  assert.deepEqual([...RULE_IDS], ['device_registered', 'step_up_required', 'resource_zone']);
 });
 
 test('the fixed complex event asks for a further check and the normal event is allowed', async () => {
@@ -21,7 +21,7 @@ test('the fixed complex event asks for a further check and the normal event is a
     reasonCode: 'step_up_required', ruleIds: ['step_up_required'] });
   const ordinary = await decide(normal);
   assert.equal(ordinary.decision, 'allow');
-  assert.deepEqual(ordinary.ruleIds, ['device_registered']);
+  assert.deepEqual(ordinary.ruleIds, ['device_registered', 'resource_zone']);
 });
 
 test('region alone never causes a further check or a block', async () => {
@@ -70,7 +70,7 @@ test('missing, untrusted or malformed signals never trigger the rule and are not
 test('after the further check the same request is allowed again with both rule ids, and nothing is permanently blocked', async () => {
   const again = await decide({ ...suspicious, requestId: randomUUID(), stepUp: { verified: true, authAgeSeconds: 60 } });
   assert.deepEqual(again, { schema: 'aleph.decision.v1', requestId: again.requestId, decision: 'allow',
-    reasonCode: 'approved', ruleIds: ['device_registered', 'step_up_required'] });
+    reasonCode: 'approved', ruleIds: ['device_registered', 'resource_zone', 'step_up_required'] });
   const stale = await decide({ ...suspicious, requestId: randomUUID(), stepUp: { verified: true, authAgeSeconds: 901 } });
   assert.equal(stale.decision, 'step_up');
   const unverifiedForged = await decide({ ...suspicious, requestId: randomUUID(), stepUp: { verified: 'true', authAgeSeconds: 1 } });

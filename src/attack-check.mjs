@@ -113,7 +113,8 @@ export async function runAttackChecks(config) {
     // 사이트로 보내는 요청이 아니라 이 컴퓨터에서 판정기 함수를 호출한 결과이며, 심판의 판정이 아니다.
     const { decide } = await import('./decider.mjs');
     const tryDevice = async (deviceRegistered, method) => {
-      const answer = await decide({ requestId: globalThis.crypto.randomUUID(), deviceRegistered, method });
+      const route = method === 'GET' ? 'GET /notes/:id' : `${method} /notes/:id`;
+      const answer = await decide({ requestId: globalThis.crypto.randomUUID(), deviceRegistered, method, route, path: '/notes/demo' });
       return `${answer.decision} ${answer.reasonCode}`;
     };
     results.push(
@@ -135,6 +136,7 @@ export async function runAttackChecks(config) {
     const tryAccess = async ({ hour, network, count, stepUp }) => {
       const answer = await decide({
         requestId: globalThis.crypto.randomUUID(), deviceRegistered: true, method: 'GET',
+        route: 'GET /notes/:id', path: '/notes/demo',
         signals: { source: 'judge_fixture', region: 'foreign', network, hour },
         stepUp: stepUp ?? { verified: false, authAgeSeconds: null },
         recentEvents: count ? [{ kind: 'risk_signal', ageSeconds: 60, count }] : [],

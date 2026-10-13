@@ -1,7 +1,7 @@
 // ALEPH SDP 엔진이 확인한 요청만 받는 학생 판정기 시작점입니다.
 // 6단계부터 규칙을 하나씩 추가합니다. 규칙에 걸리지 않은 요청은 모두 거부합니다.
 // 요청 본문의 userId, role, 기기 키, 토큰을 별도로 믿거나 저장하지 마세요.
-export const RULE_IDS = Object.freeze(['device_registered', 'step_up_required']);
+export const RULE_IDS = Object.freeze(['device_registered', 'step_up_required', 'resource_zone']);
 
 // 7단계 입력 검사: 엔진이 검증해 넘긴 접속 정보(signals·stepUp·recentEvents)만 읽습니다.
 // - 판정기가 읽는 값은 요청의 이 세 항목뿐입니다. 요청에 headers, geo 같은 다른 이름이
@@ -63,8 +63,45 @@ function stepUpSignals(info) {
 
 const isComplexAnomaly = info => Object.values(stepUpSignals(info)).every(Boolean);
 
+
+// 8단계 규칙 resource_zone: 자료를 구역(자원 ID)으로 나누고, 엔진이 확인한 method·route·path만으로 판단합니다.
+// - 이 파일 혼자 불러도 동작하도록 표를 안에 둡니다. src/resources.mjs의 표와 같아야 하며 test/decider-zone.test.mjs가 둘을 대조합니다.
+// - 자원 ID는 경로 모양(route)에서만 고릅니다. 쿼리(queryLength·querySha256)는 기능을 고르는 데 쓰지 않습니다.
+// - 허용하는 것은 내 메모 구역(note.own)의 읽기·수정뿐입니다: GET /notes, GET /notes/:id, PUT /notes/:id.
+//   그 밖의 동작(추가·삭제), 알 수 없는 경로, 모양이 다른 경로는 모두 거부합니다.
+// - 강사 공지(notice.instructor)는 거부합니다. 요청 계약에 강사 역할이 없어서 판정기가 강사인지 확인할 수 없고,
+//   요청 본문·메뉴의 role 같은 값은 믿지 않으므로 공지 수정은 열 수 없습니다.
+// - 어떤 메모가 누구의 것인지(소유자)는 요청 계약에 없어서 판정기는 보지 못합니다. 남의 메모 차단은 자료 API가 맡습니다.
+const ZONE_RESOURCES = Object.freeze({
+  'GET /notes': 'note.own',
+  'POST /notes': 'note.own',
+  'GET /notes/:id': 'note.own',
+  'PUT /notes/:id': 'note.own',
+  'DELETE /notes/:id': 'note.own',
+  'GET /notices': 'notice.instructor',
+  'GET /notices/:id': 'notice.instructor',
+  'PUT /notices/:id': 'notice.instructor',
+});
+const OWN_NOTE_ACTIONS = Object.freeze(['GET /notes', 'GET /notes/:id', 'PUT /notes/:id']);
+// :id 자리에 기능 이름이 들어 있으면(예: /notes/export) 자료 번호가 아니라 기능 경로이므로 거부합니다.
+const FUNCTION_WORDS = Object.freeze(['export', 'import', 'search', 'list', 'all', 'bulk', 'batch', 'backup', 'download', 'admin', 'me', 'new']);
+const ID_SEGMENT = /^[A-Za-z0-9_-]{1,64}$/u;
+
+function inOwnNoteZone(request) {
+  if (typeof request?.route !== 'string' || typeof request.path !== 'string' || typeof request.method !== 'string') return false;
+  const shape = request.route.replace(/^([A-Z]+) \/api\//u, '$1 /');
+  if (!Object.hasOwn(ZONE_RESOURCES, shape) || ZONE_RESOURCES[shape] !== 'note.own') return false;
+  if (!OWN_NOTE_ACTIONS.includes(shape) || shape.split(' ')[0] !== request.method) return false;
+  const path = request.path.replace(/^\/api\//u, '/');
+  if (shape.endsWith(':id')) {
+    const match = /^\/notes\/([^/]+)$/u.exec(path);
+    return match !== null && ID_SEGMENT.test(match[1]) && !FUNCTION_WORDS.includes(match[1].toLowerCase());
+  }
+  return path === '/notes';
+}
+
 export async function decide(request) {
-  // 6단계 규칙 device_registered: 등록된 기기(deviceRegistered 가 true)의 읽기(GET) 요청만 허용합니다.
+  // 6단계 규칙 device_registered: 등록된 기기(deviceRegistered 가 true)의 요청만 다음 규칙으로 넘깁니다.
   // 값이 false 이거나 없거나 true 가 아닌 값이면 미등록으로 보고 거부합니다.
   if (request?.deviceRegistered !== true) {
     return {
@@ -75,14 +112,15 @@ export async function decide(request) {
       ruleIds: [RULE_IDS[0]],
     };
   }
-  // 등록된 기기라도 읽기가 아닌 동작(추가·수정·삭제 등)은 이 규칙이 허용하지 않으므로 거부합니다.
-  if (request.method !== 'GET') {
+  // 8단계 규칙 resource_zone: 등록 기기라도 내 메모 구역의 읽기·수정이 아니면 거부합니다.
+  // (읽기가 아닌 동작 중 추가·삭제, 강사 공지, 알 수 없는 경로, 모양이 다른 경로가 모두 여기서 거부됩니다.)
+  if (!inOwnNoteZone(request)) {
     return {
       schema: 'aleph.decision.v1',
       requestId: request.requestId,
       decision: 'deny',
       reasonCode: 'starter_not_ready',
-      ruleIds: [RULE_IDS[0]],
+      ruleIds: [RULE_IDS[2]],
     };
   }
   // 7단계 규칙 step_up_required: 복합 이상 신호가 겹쳤고 추가 확인이 아직 없으면 자료를 주지 않고 추가 확인을 요구합니다.
@@ -102,6 +140,6 @@ export async function decide(request) {
     requestId: request.requestId,
     decision: 'allow',
     reasonCode: 'approved',
-    ruleIds: anomaly ? [RULE_IDS[0], RULE_IDS[1]] : [RULE_IDS[0]],
+    ruleIds: anomaly ? [RULE_IDS[0], RULE_IDS[2], RULE_IDS[1]] : [RULE_IDS[0], RULE_IDS[2]],
   };
 }
