@@ -33,6 +33,11 @@ export function deploymentIdentity(env, config) {
   if (Array.isArray(routes) && routes.length > 0 && routes.every(route => typeof route === 'string' && route)) {
     identity.allowedRoutes = [...routes];
   }
+  // 10단계: 복구 경로도 /aleph.json에 알린다. "POST /api/restore" 모양의 문자열일 때만 넣는다.
+  const restore = config.restoreRoute;
+  if (typeof restore === 'string' && /^(GET|POST|PUT|PATCH|DELETE) \/[A-Za-z0-9/_:.-]{1,80}$/u.test(restore)) {
+    identity.restoreRoute = restore;
+  }
   // 5단계: 심판은 배포된 /aleph.json에서 데이터 원본의 HTTPS 주소를 읽는다.
   // 설정에 값이 있으면 쿼리·비밀값이 없는 https 주소인지 확인하고 넣는다. 잘못된 값이면 빌드를 멈춘다.
   const original = config.originalApiUrl;
