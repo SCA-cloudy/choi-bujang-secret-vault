@@ -50,7 +50,7 @@ async function anonymousApiResult(app, path, init = {}) {
 }
 
 export async function runAttackChecks(config) {
-  if (![1, 2, 3, 4, 5, 6, 7, 8, 9].includes(config.step)) {
+  if (![1, 2, 3, 4, 5, 6, 7, 8, 9, 10].includes(config.step)) {
     throw new Error('이 단계의 공격 점검을 src/attack-check.mjs에 구현해 주세요.');
   }
   const app = checkedAppUrl(config);
@@ -207,6 +207,18 @@ export async function runAttackChecks(config) {
         expected: '10분 안에 121건은 propose_revocation과 이유 코드 burst_read (탐지 함수를 직접 부른 연습)',
         observed: tryDetect(121) },
     );
+    if (config.step === 9) return results;
+
+    // 10단계: 로그인 없이 복구 경로(POST /api/restore)를 불러 본다. 복구 경로는 먼저 로그인을 확인하므로 거부되어야 한다.
+    // 실제로 있는 메모의 번호는 쓰지 않고 없는 가짜 번호로만 보내, 어떤 메모도 바뀌지 않는다.
+    // 로그인한 시험 계정 B로 변조·삭제 뒤 복구하는 확인은 로그인이 필요해 이 점검에 넣지 않고, 직접 확인한 결과를 README에 따로 적는다.
+    // 제출 묶음은 직접 점검을 20개까지만 받으므로 10단계에서는 이 한 개만 더한다.
+    const restore = await anonymousApiResult(app, '/api/restore', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: missingId }),
+    });
+    results.push({ attackId: 'anonymous_restore_request',
+      expected: '로그인 없이 복구를 요청하면 401 또는 403으로 거부 (없는 가짜 번호로 시험)',
+      observed: seen(restore) });
     return results;
   }
 

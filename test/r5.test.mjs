@@ -348,3 +348,39 @@ test('step 9 attack check keeps the step 8 records and adds the local detection 
     globalThis.fetch = originalFetch;
   }
 });
+
+test('step 10 attack check keeps the step 9 records and adds one anonymous restore request', async () => {
+  const originalFetch = globalThis.fetch;
+  const requested = [];
+  const bodies = [];
+  try {
+    globalThis.fetch = async (url, init) => {
+      requested.push(`${init.method ?? 'GET'} ${new URL(String(url)).pathname}`);
+      bodies.push(init.body ?? '');
+      if (String(url).endsWith('/data.json')) return new Response('Not found', { status: 404 });
+      return new Response(JSON.stringify({ error: 'LOGIN_REQUIRED' }), {
+        status: 401, headers: { 'content-type': 'application/json' },
+      });
+    };
+    const results = await runAttackChecks({
+      ...config, step: 10, originalApiUrl: 'https://example-project.supabase.co/rest/v1/notes',
+    });
+    assert.equal(requested.length, 7);
+    assert.equal(requested[6], 'POST /api/restore');
+    assert.ok(!requested.slice(0, 6).includes('POST /api/restore'));
+    assert.deepEqual(JSON.parse(bodies[6]), { id: '00000000-0000-4000-8000-000000000000' }); // 없는 가짜 번호만 쓴다
+    assert.equal(results.length, 20);                                                       // bundle이 받는 최대 개수
+    assert.equal(results[19].attackId, 'anonymous_restore_request');
+    assert.match(results[19].observed, /HTTP 401, 오류 문구 LOGIN_REQUIRED, 가상 메모 0건/u);
+    assert.deepEqual(results.slice(0, 19).map(item => item.attackId),
+      (await runAttackChecks({ ...config, step: 9, originalApiUrl: 'https://example-project.supabase.co/rest/v1/notes' })).map(item => item.attackId));
+    assert.equal(new Set(results.map(item => item.attackId)).size, 20);
+    for (const item of results) {
+      assert.deepEqual(Object.keys(item).sort(), ['attackId', 'expected', 'observed']);
+      assert.ok(item.expected.length <= 300 && item.observed.length <= 300);
+    }
+    await assert.rejects(runAttackChecks({ ...config, step: 11 }));
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
