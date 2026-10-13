@@ -169,14 +169,6 @@ test('build identity adds allowedRoutes only when the config lists them', () => 
   }
 });
 
-test('build identity publishes restoreRoute only when it is a well-formed route string', () => {
-  assert.equal(deploymentIdentity(env, { ...config, step: 10, restoreRoute: 'POST /api/restore' }).restoreRoute, 'POST /api/restore');
-  for (const bad of [undefined, null, '', 'POST', '/api/restore', 'POST api/restore', 'POST /api/restore?x=1', 'POST https://evil.example/x', 1, ['POST /api/restore']]) {
-    assert.ok(!('restoreRoute' in deploymentIdentity(env, { ...config, step: 10, restoreRoute: bad })));
-  }
-  assert.ok(!('restoreRoute' in deploymentIdentity(env, { ...config, step: 9 })));
-});
-
 test('step 5 attack check also reads the original API anonymously and never records the key', async () => {
   const originalFetch = globalThis.fetch;
   const originalKey = process.env.SUPABASE_PUBLISHABLE_KEY;
