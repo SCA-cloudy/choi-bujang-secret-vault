@@ -4,6 +4,9 @@
 // - 4단계 제작 2: 읽기·수정·삭제는 DB의 owner_id가 서버가 확인한 사용자 ID와 같은 행에만 한다.
 //   남의 메모는 없는 메모와 똑같이 404로 답해, 그런 메모가 있는지도 알려 주지 않는다.
 //   수정 요청에 owner_id가 들어 있으면 소유자 변경 시도로 보고 403으로 거부한다.
+// - 8단계 제작 3: 저장소가 알려 준 owner_id를 서버가 확인한 로그인 사용자 ID와 한 번 더 대조한다.
+//   요청 본문·쿼리·헤더·화면 메뉴의 role, 강사 표시 같은 값은 읽지 않는다. 어긋난 행은 응답에 담지 않고,
+//   거부 사유 코드(NOT_OWNER 등)만 짧게 서버 기록에 남긴다. 사용자 ID·토큰·메모 내용은 기록하지 않는다.
 // - SUPABASE_URL과 SUPABASE_SECRET_KEY는 Vercel 환경변수에서만 읽고, 어디에도 내보내지 않는다.
 import { randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
@@ -60,6 +63,10 @@ export function createNotesHandlers({ verifyAuthorization, store }) {
     return identity;
   }
 
+  // 저장된 owner_id가 로그인한 사용자와 같을 때만 참. owner_id가 없거나 다르면 거짓(닫힌 쪽으로 판단).
+  const owns = (row, identity) => typeof row?.owner_id === 'string' && row.owner_id === identity.userId;
+  const refuse = reason => console.error(`notes: 거부 사유=${reason}`);
+
   function failed(response, error) {
     console.error('notes: 처리하지 못했습니다.', String(error?.message ?? '').slice(0, 40));
     return response.status(500).json({ error: 'NOTES_UNAVAILABLE' });
@@ -72,7 +79,9 @@ export function createNotesHandlers({ verifyAuthorization, store }) {
     try {
       if (request.method === 'GET') {
         const rows = await store.list(identity.userId);
-        return response.status(200).json(rows.map(view));
+        const mine = rows.filter(row => owns(row, identity));
+        if (mine.length !== rows.length) refuse('NOT_OWNER');
+        return response.status(200).json(mine.map(view));
       }
       const value = readJsonBody(request);
       const fields = value && readFields(value);
@@ -102,9 +111,19 @@ export function createNotesHandlers({ verifyAuthorization, store }) {
     try {
       if (request.method === 'GET') {
         const row = await store.get(id, identity.userId);
-        return row ? response.status(200).json(view(row)) : response.status(404).json({ error: 'NOT_FOUND' });
+        if (row && !owns(row, identity)) refuse('NOT_OWNER');
+        return row && owns(row, identity) ? response.status(200).json(view(row)) : response.status(404).json({ error: 'NOT_FOUND' });
       }
+      // 수정·삭제 전에 저장된 소유자를 먼저 대조한다. 내 것이 아니면 저장소를 바꾸지 않고, 없는 메모와 같은 404로 답한다.
+      const ownedOrRefuse = async () => {
+        const current = await store.get(id, identity.userId);
+        if (current && owns(current, identity)) return true;
+        refuse(current ? 'NOT_OWNER' : 'NOT_FOUND_OR_NOT_OWNER');
+        response.status(404).json({ error: 'NOT_FOUND' });
+        return false;
+      };
       if (request.method === 'DELETE') {
+        if (!(await ownedOrRefuse())) return;
         const row = await store.remove(id, identity.userId);
         return row ? response.status(200).json({ id }) : response.status(404).json({ error: 'NOT_FOUND' });
       }
@@ -116,6 +135,7 @@ export function createNotesHandlers({ verifyAuthorization, store }) {
       if (!fields || (value.id !== undefined && String(value.id).toLowerCase() !== id)) {
         return response.status(400).json({ error: 'INVALID_NOTE' });
       }
+      if (!(await ownedOrRefuse())) return;
       const row = await store.update(id, identity.userId, fields);
       return row ? response.status(200).json(view(row)) : response.status(404).json({ error: 'NOT_FOUND' });
     } catch (error) {
@@ -155,7 +175,7 @@ export function createSupabaseStore() {
     return db.from('notes');
   }
   const fail = error => { throw new Error(`db_failed:${error.code ?? 'unknown'}`); };
-  const columns = 'id, title, content';
+  const columns = 'id, owner_id, title, content';
 
   return {
     // 아래 list·get·update·remove는 모두 owner_id가 로그인한 사용자와 같은 행에만 적용한다.

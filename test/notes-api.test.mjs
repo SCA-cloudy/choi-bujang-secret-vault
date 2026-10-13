@@ -238,3 +238,73 @@ test('저장소 오류는 500이고 오류 내용을 응답에 담지 않는다'
     assert.deepEqual(r.body, { error: 'NOTES_UNAVAILABLE' });
   } finally { console.error = original; }
 });
+
+// 8단계 제작 3: 저장소가 잘못 답해도(남의 행을 돌려줘도) 서버가 owner_id를 한 번 더 대조해 응답에 담지 않는다.
+function leakyStore(seed) {
+  const base = memoryStore(seed);
+  const calls = [];
+  return {
+    ...base,
+    calls,
+    async list() { return [...base.rows.values()]; },
+    async get(id) { return base.rows.get(id) ?? null; },
+    async update(...args) { calls.push('update'); return base.update(...args); },
+    async remove(...args) { calls.push('remove'); return base.remove(...args); },
+  };
+}
+
+function captureErrors(fn) {
+  const lines = [];
+  const original = console.error;
+  console.error = (...args) => { lines.push(args.join(' ')); };
+  return fn().then(result => ({ result, lines }), error => { throw error; }).finally(() => { console.error = original; });
+}
+
+test('저장소가 남의 메모를 돌려줘도 목록·조회에 나오지 않고, 수정·삭제는 저장소에 닿지 않는다', async () => {
+  const seed = [{ id: ID1, owner_id: A, title: 'A의 메모', content: '비공개 본문' }];
+  const store = leakyStore(seed);
+  const handlers = createNotesHandlers({ verifyAuthorization: async authorization => TOKENS[authorization] ?? null, store });
+  const b = { token: 'Bearer b.b.b', query: { id: ID1 } };
+  const { result, lines } = await captureErrors(async () => ({
+    list: await call(handlers.collection, { token: 'Bearer b.b.b' }),
+    read: await call(handlers.item, b),
+    put: await call(handlers.item, { ...b, method: 'PUT', body: { title: '탈취', body: 'x' } }),
+    del: await call(handlers.item, { ...b, method: 'DELETE' }),
+  }));
+  assert.deepEqual(result.list.body, []);
+  for (const key of ['read', 'put', 'del']) {
+    assert.equal(result[key].statusCode, 404, key);
+    assert.deepEqual(result[key].body, { error: 'NOT_FOUND' });
+  }
+  assert.deepEqual(store.calls, []);
+  assert.deepEqual(store.rows.get(ID1), seed[0]);
+  assert.ok(lines.some(line => line.includes('거부 사유=NOT_OWNER')));
+  const written = lines.join('\n');
+  assert.ok(!written.includes(A) && !written.includes(B) && !written.includes('비공개 본문') && !written.includes('Bearer'));
+});
+
+test('본문·쿼리·헤더에 role이나 강사 표시를 넣어도 다른 구역 자료는 나오지 않는다', async () => {
+  const { handlers, store } = build([{ id: ID1, owner_id: A, title: 'A의 메모', content: 'c' }]);
+  const claims = { role: 'instructor', is_instructor: true, user_id: A };
+  const send = async (extra) => {
+    const response = fakeResponse();
+    await handlers.item({ method: extra.method ?? 'GET', headers: { authorization: 'Bearer b.b.b', 'x-role': 'instructor', 'x-user-role': 'admin' },
+      body: extra.body, query: { id: ID1, role: 'instructor', as: A } }, response);
+    return response;
+  };
+  assert.equal((await send({})).statusCode, 404);
+  assert.equal((await send({ method: 'PUT', body: { title: 'x', body: 'y', role: 'instructor', is_instructor: true } })).statusCode, 404);
+  assert.equal((await send({ method: 'DELETE', body: claims })).statusCode, 404);
+  assert.equal(store.rows.get(ID1).title, 'A의 메모');
+  const created = await call(handlers.collection, { method: 'POST', token: 'Bearer b.b.b', body: { title: '새 메모', body: 'z', role: 'instructor' } });
+  assert.equal(created.statusCode, 201);
+  assert.equal(store.rows.get(created.body.id).owner_id, B);
+});
+
+test('내 메모의 정상 읽기·수정·삭제는 그대로 된다', async () => {
+  const { handlers } = build([{ id: ID1, owner_id: A, title: 'A의 메모', content: 'c' }]);
+  const a = { query: { id: ID1 } };
+  assert.equal((await call(handlers.item, a)).statusCode, 200);
+  assert.equal((await call(handlers.item, { ...a, method: 'PUT', body: { title: '고침', body: 'd' } })).statusCode, 200);
+  assert.equal((await call(handlers.item, { ...a, method: 'DELETE' })).statusCode, 200);
+});
