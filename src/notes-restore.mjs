@@ -1,0 +1,107 @@
+// 10단계 제작 3: POST /api/restore — 비공개 백업 표(notes_backup)의 사본으로 "내 메모 한 건"만 되돌립니다.
+// - 먼저 로그인 검사를 통과해야 합니다. 통과하지 못하면 아무것도 보여 주지 않고 401입니다.
+// - 요청 본문은 {"id": "<메모 ID>"} 하나뿐입니다. 소유자·role·그 밖의 값은 읽지 않으며, 소유자 이름이 있으면 403으로 거부합니다.
+// - 사본은 "요청한 ID + 서버가 확인한 로그인 사용자"로만 찾습니다. 그래서 남의 메모, 없는 사본은 같은 404이고 존재 여부도 알려 주지 않습니다.
+// - 되돌리기 전에 사본의 ID·소유자·내용 해시를 대조합니다. 하나라도 다르면 메모를 바꾸지 않습니다.
+// - 같은 ID의 메모가 이미 다른 사람 것이면 거부합니다. 바꾸는 곳은 그 한 행뿐이며 다른 메모, 사본 표, 서버 기록은 지우거나 고치지 않습니다.
+// - 되돌린 뒤 메모를 다시 읽어 ID·소유자·내용 해시가 사본과 같은지 확인하고, 다르면 원래 상태로 돌려놓고 실패로 답합니다.
+// - 서버 기록에는 짧은 이유 코드만 남기고 사용자 ID·토큰·메모 내용은 남기지 않습니다.
+import { checkBackupRow, noteContentSha256 } from './note-backup.mjs';
+import { createSupabaseStore, defaultVerifyAuthorization } from './notes-api.mjs';
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iu;
+const OWNER_FIELDS = ['owner_id', 'ownerId', 'user_id', 'userId'];
+const log = text => console.error(`notes: ${text}`);
+
+function readJsonBody(request) {
+  let value = request.body;
+  if (typeof value === 'string') {
+    try { value = JSON.parse(value); } catch { return null; }
+  }
+  return value && typeof value === 'object' && !Array.isArray(value) ? value : null;
+}
+
+export function createRestoreHandler({ verifyAuthorization, store }) {
+  return async function restore(request, response) {
+    response.setHeader('Cache-Control', 'no-store');
+    response.setHeader('Vary', 'Authorization');
+    if (request.method !== 'POST') {
+      response.setHeader('Allow', 'POST');
+      return response.status(405).json({ error: 'METHOD_NOT_ALLOWED' });
+    }
+    let identity = null;
+    try {
+      identity = await verifyAuthorization(request.headers?.authorization);
+    } catch {
+      log('로그인 검사를 끝내지 못했습니다.');
+    }
+    if (!identity) {
+      response.setHeader('WWW-Authenticate', 'Bearer');
+      return response.status(401).json({ error: 'LOGIN_REQUIRED' });
+    }
+
+    const value = readJsonBody(request);
+    if (!value) return response.status(400).json({ error: 'INVALID_RESTORE_REQUEST' });
+    if (OWNER_FIELDS.some(name => name in value)) return response.status(403).json({ error: 'OWNER_CHANGE_FORBIDDEN' });
+    const keys = Object.keys(value);
+    if (keys.length !== 1 || keys[0] !== 'id') return response.status(400).json({ error: 'INVALID_RESTORE_REQUEST' });
+    if (typeof value.id !== 'string' || !UUID.test(value.id)) return response.status(400).json({ error: 'INVALID_ID' });
+    const id = value.id.toLowerCase();
+    const ownerId = identity.userId;
+
+    try {
+      const backup = await store.getBackup(id, ownerId);
+      const verdict = checkBackupRow(backup, { id, ownerId });
+      if (!verdict.ok) {
+        log(`복구 거부 사유=${verdict.reason}`);
+        return verdict.reason.startsWith('BACKUP_HASH')
+          ? response.status(409).json({ error: 'BACKUP_INVALID' })
+          : response.status(404).json({ error: 'NOT_FOUND' });
+      }
+      const live = await store.peek(id);
+      if (live && live.owner_id !== ownerId) {
+        log('복구 거부 사유=LIVE_OWNED_BY_OTHER');
+        return response.status(404).json({ error: 'NOT_FOUND' });
+      }
+      // 되돌리기 전 값을 복사해 둔다(검증에 실패하면 이 값으로 돌려놓는다).
+      const current = live ? await store.get(id, ownerId) : null;
+      const prior = current ? { title: current.title, content: current.content } : null;
+      const fields = { title: backup.title, content: backup.content };
+      let action;
+      if (live) {
+        if (!(await store.update(id, ownerId, fields))) return response.status(404).json({ error: 'NOT_FOUND' });
+        action = 'updated';
+      } else {
+        const created = await store.create({ id, ownerId, ...fields });
+        if (created?.conflict) {
+          log('복구 거부 사유=RESTORE_CONFLICT');
+          return response.status(409).json({ error: 'RESTORE_CONFLICT' });
+        }
+        action = 'recreated';
+      }
+      const after = await store.get(id, ownerId);
+      let verified = false;
+      try {
+        verified = Boolean(after) && after.id === id && after.owner_id === ownerId
+          && noteContentSha256(after.title, after.content) === verdict.sha256;
+      } catch { verified = false; }
+      if (!verified) {
+        if (prior) await store.update(id, ownerId, { title: prior.title, content: prior.content });
+        else await store.remove(id, ownerId);
+        log('복구 거부 사유=RESTORE_VERIFY_FAILED');
+        return response.status(500).json({ error: 'RESTORE_FAILED' });
+      }
+      log(`복구 결과=${action}`);
+      return response.status(200).json({ id, restored: action, contentSha256: verdict.sha256 });
+    } catch (error) {
+      log(`처리하지 못했습니다. ${String(error?.message ?? '').slice(0, 40)}`);
+      return response.status(500).json({ error: 'NOTES_UNAVAILABLE' });
+    }
+  };
+}
+
+let defaultHandler;
+export function defaultRestoreHandler() {
+  defaultHandler ??= createRestoreHandler({ verifyAuthorization: defaultVerifyAuthorization, store: createSupabaseStore() });
+  return defaultHandler;
+}

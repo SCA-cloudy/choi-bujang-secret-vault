@@ -7,9 +7,12 @@
 // - 8단계 제작 3: 저장소가 알려 준 owner_id를 서버가 확인한 로그인 사용자 ID와 한 번 더 대조한다.
 //   요청 본문·쿼리·헤더·화면 메뉴의 role, 강사 표시 같은 값은 읽지 않는다. 어긋난 행은 응답에 담지 않고,
 //   거부 사유 코드(NOT_OWNER 등)만 짧게 서버 기록에 남긴다. 사용자 ID·토큰·메모 내용은 기록하지 않는다.
+// - 10단계 제작 3: 메모를 새로 만들 때 서버가 비공개 사본(notes_backup) 한 벌을 함께 저장한다(고치거나 지우지 않는 첫 한 벌).
+//   사본 저장에 실패해도 메모 추가는 막지 않고 이유 코드만 기록한다. 복구는 src/notes-restore.mjs가 맡는다.
 // - SUPABASE_URL과 SUPABASE_SECRET_KEY는 Vercel 환경변수에서만 읽고, 어디에도 내보내지 않는다.
 import { randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
+import { noteContentSha256 } from './note-backup.mjs';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iu;
 const MAX_TITLE = 200;
@@ -95,6 +98,11 @@ export function createNotesHandlers({ verifyAuthorization, store }) {
       }
       const result = await store.create({ id, ownerId: identity.userId, ...fields });
       if (result?.conflict) return response.status(409).json({ error: 'ID_IN_USE' });
+      try {
+        await store.saveBackup?.({ id, ownerId: identity.userId, ...fields, sha256: noteContentSha256(fields.title, fields.content) });
+      } catch {
+        console.error('notes: 백업 실패=BACKUP_SAVE_FAILED');
+      }
       return response.status(201).json({ id });
     } catch (error) {
       return failed(response, error);
@@ -164,7 +172,7 @@ export async function defaultVerifyAuthorization(authorization) {
 
 export function createSupabaseStore() {
   let db;
-  async function table() {
+  async function client() {
     if (!db) {
       const url = process.env.SUPABASE_URL;
       const key = process.env.SUPABASE_SECRET_KEY;
@@ -172,8 +180,10 @@ export function createSupabaseStore() {
       const { createClient } = await import('@supabase/supabase-js');
       db = createClient(url, key, { auth: { persistSession: false, autoRefreshToken: false } });
     }
-    return db.from('notes');
+    return db;
   }
+  const table = async () => (await client()).from('notes');
+  const backupTable = async () => (await client()).from('notes_backup');
   const fail = error => { throw new Error(`db_failed:${error.code ?? 'unknown'}`); };
   const columns = 'id, owner_id, title, content';
 
@@ -204,6 +214,26 @@ export function createSupabaseStore() {
       const { data, error } = await (await table()).delete().eq('id', id).eq('owner_id', ownerId).select('id').maybeSingle();
       if (error) fail(error);
       return data;
+    },
+    // 10단계: 아래 세 개는 복구(src/notes-restore.mjs)와 사본 저장에만 쓴다.
+    // peek: 같은 ID의 메모가 있는지와 그 소유자만 알려 준다(내용은 읽지 않는다). 응답에는 담지 않는다.
+    async peek(id) {
+      const { data, error } = await (await table()).select('id, owner_id').eq('id', id).maybeSingle();
+      if (error) fail(error);
+      return data;
+    },
+    // 사본은 "ID + 로그인한 사용자"로만 찾는다.
+    async getBackup(id, ownerId) {
+      const { data, error } = await (await backupTable()).select('id, owner_id, title, content, content_sha256').eq('id', id).eq('owner_id', ownerId).maybeSingle();
+      if (error) fail(error);
+      return data;
+    },
+    // 사본은 추가만 한다. 이미 같은 ID의 사본이 있으면 덮어쓰지 않는다(첫 한 벌 유지).
+    async saveBackup({ id, ownerId, title, content, sha256 }) {
+      const { error } = await (await backupTable()).insert({ id, owner_id: ownerId, title, content, content_sha256: sha256 });
+      if (error?.code === '23505') return { exists: true };
+      if (error) fail(error);
+      return { exists: false };
     },
   };
 }
