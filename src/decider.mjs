@@ -1,7 +1,7 @@
 // ALEPH SDP 엔진이 확인한 요청만 받는 학생 판정기 시작점입니다.
 // 6단계부터 규칙을 하나씩 추가합니다. 규칙에 걸리지 않은 요청은 모두 거부합니다.
 // 요청 본문의 userId, role, 기기 키, 토큰을 별도로 믿거나 저장하지 마세요.
-export const RULE_IDS = Object.freeze(['device_registered']);
+export const RULE_IDS = Object.freeze(['device_registered', 'step_up_required']);
 
 // 7단계 입력 검사: 엔진이 검증해 넘긴 접속 정보(signals·stepUp·recentEvents)만 읽습니다.
 // - 판정기가 읽는 값은 요청의 이 세 항목뿐입니다. 요청에 headers, geo 같은 다른 이름이
@@ -39,6 +39,30 @@ export function readAccessInfo(request) {
   };
 }
 
+// 7단계 규칙 step_up_required: 아래 세 신호가 한꺼번에 겹칠 때만 추가 확인(step_up)을 요구합니다.
+//  1) 평소와 다른 시각(밤 22시~새벽 5시)  2) 처음 보는 네트워크(network 가 unusual)
+//  3) 갑자기 많은 자료 읽기(최근 10분 안의 사건이 합쳐서 10건 이상)
+// 지역(region)은 판단에 쓰지 않습니다. 지역 하나만으로는 추가 확인도 차단도 하지 않으며,
+// 이 규칙은 영구 차단을 만들지 않습니다. 추가 확인(step_up)을 마치면 요청은 다시 판정됩니다.
+// 신호 값이 없거나 믿을 수 없으면(null) 해당 신호는 "없음"으로 보고 이 규칙은 작동하지 않습니다.
+const UNUSUAL_HOURS = Object.freeze({ lateFrom: 22, earlyUntil: 5 });
+const UNFAMILIAR_NETWORK = 'unusual';
+const BULK_READ = Object.freeze({ windowSeconds: 600, minCount: 10 });
+
+function stepUpSignals(info) {
+  const { hour, network } = info.signals;
+  const bulk = info.recentEvents
+    .filter(item => item.ageSeconds <= BULK_READ.windowSeconds)
+    .reduce((sum, item) => sum + item.count, 0);
+  return {
+    unusualHour: hour !== null && (hour >= UNUSUAL_HOURS.lateFrom || hour <= UNUSUAL_HOURS.earlyUntil),
+    unfamiliarNetwork: network === UNFAMILIAR_NETWORK,
+    bulkRead: bulk >= BULK_READ.minCount,
+  };
+}
+
+const isComplexAnomaly = info => Object.values(stepUpSignals(info)).every(Boolean);
+
 export async function decide(request) {
   // 6단계 규칙 device_registered: 등록된 기기(deviceRegistered 가 true)의 읽기(GET) 요청만 허용합니다.
   // 값이 false 이거나 없거나 true 가 아닌 값이면 미등록으로 보고 거부합니다.
@@ -61,11 +85,23 @@ export async function decide(request) {
       ruleIds: [RULE_IDS[0]],
     };
   }
+  // 7단계 규칙 step_up_required: 복합 이상 신호가 겹쳤고 추가 확인이 아직 없으면 자료를 주지 않고 추가 확인을 요구합니다.
+  const info = readAccessInfo(request);
+  const anomaly = isComplexAnomaly(info);
+  if (anomaly && !info.stepUp.verified) {
+    return {
+      schema: 'aleph.decision.v1',
+      requestId: request.requestId,
+      decision: 'step_up',
+      reasonCode: 'step_up_required',
+      ruleIds: [RULE_IDS[1]],
+    };
+  }
   return {
     schema: 'aleph.decision.v1',
     requestId: request.requestId,
     decision: 'allow',
     reasonCode: 'approved',
-    ruleIds: [RULE_IDS[0]],
+    ruleIds: anomaly ? [RULE_IDS[0], RULE_IDS[1]] : [RULE_IDS[0]],
   };
 }
