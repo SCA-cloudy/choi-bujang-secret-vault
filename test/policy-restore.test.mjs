@@ -6,7 +6,7 @@ import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { test } from 'node:test';
 import { fixtureRequests } from '../scripts/fixture-7.mjs';
-import { DEFAULT_SNAPSHOT, REPO_ROOT, currentPolicyOf } from '../scripts/policy-diff.mjs';
+import { DEFAULT_SNAPSHOT, REPO_ROOT, currentPolicyOf, readVerifiedSnapshot } from '../scripts/policy-diff.mjs';
 import { run } from '../scripts/policy-restore.mjs';
 import { mergeRoutes, planRestore, setAllowedRoutes } from '../src/policy-restore.mjs';
 
@@ -169,4 +169,38 @@ test('허용 경로만 달라졌으면 설정의 allowedRoutes만 바뀌고 판�
   assert.ok(restored.includes('\r\n'));
   assert.ok(JSON.parse(restored).allowedRoutes.includes('GET /api/notes/:id'));
   assert.deepEqual(planRestore({ changes: [{ area: 'allowedRoutes' }] }).map(target => target.file), ['aleph.config.json']);
+});
+
+test('쓰기 직전에 사본을 다시 읽어 검증한다: 정상이면 두 번 읽고, 두 번째가 다르거나 실패하면 아무것도 쓰지 않는다', async () => {
+  // 정상: 미리보기는 한 번, 실행은 두 번 읽는다
+  const base = await makeRoot();
+  await tamper(base);
+  let reads = 0;
+  const counting = async (file, expect) => { reads += 1; return readVerifiedSnapshot(file, expect); };
+  await run({ base, readSnapshot: counting, readSource: pristine });
+  assert.equal(reads, 1);
+  reads = 0;
+  const done = await run({ base, apply: true, confirm: await snapshotPin(), readSnapshot: counting, readSource: pristine });
+  assert.equal(done.code, 0);
+  assert.equal(reads, 2);
+  assert.ok(done.lines.some(line => line.includes('실행 직전 사본 다시 읽기: 통과')));
+
+  // 두 번째 읽기가 실패하거나 다른 사본이면 쓰지 않는다
+  for (const mode of ['fails', 'different']) {
+    const other = await makeRoot();
+    await tamper(other);
+    const before = await Promise.all(FILES.map(file => read(other, file)));
+    let count = 0;
+    const flaky = async (file, expect) => {
+      count += 1;
+      const loaded = await readVerifiedSnapshot(file, expect);
+      if (count < 2) return loaded;
+      if (mode === 'fails') return { ok: false, line: '중단: 사본 검증 실패' };
+      return { ok: true, snapshot: { ...loaded.snapshot, sha256: 'f'.repeat(64) } };
+    };
+    const result = await run({ base: other, apply: true, confirm: await snapshotPin(), readSnapshot: flaky, readSource: pristine });
+    assert.equal(result.code, 1, mode);
+    assert.ok(result.lines.some(line => line.includes('실행 직전에 사본을 다시 읽어')), mode);
+    assert.deepEqual(await Promise.all(FILES.map(file => read(other, file))), before, mode); // 파일이 하나도 바뀌지 않음
+  }
 });
