@@ -18,6 +18,32 @@
 
 로컬에서 가상 화면만 확인할 때는 `npm run build -- --local`을 사용합니다. 로컬 실행은 Vercel 배포나 심판 접수를 증명하지 않습니다. 저장소의 `src/attack-check.mjs`는 실제 배포가 된 뒤 비로그인으로 요청해 결과를 기록합니다. 1단계는 `/data.json`의 확인 표시를 읽고, 2·3단계는 비로그인 요청의 상태 코드·오류 문구·메모 개수만 기록하며 메모 본문은 기록하지 않습니다.
 
+## 6단계 현재 상태 (등록한 기기만 자료실에 들어옵니다, 2026-10-13)
+
+`src/decider.mjs`(판정기)에 규칙 하나를 더했습니다. 규칙 ID는 `device_registered`이고 `RULE_IDS`는 `['starter.deny', 'device_registered']`입니다. 요청의 `deviceRegistered`가 정확히 `true`일 때만 `allow`(이유 코드 `approved`)를 돌려주고, `false`·값 없음·그 밖의 값은 `deny`와 이유 코드 `device_not_registered`로 거부합니다. 응답은 계약의 다섯 항목(`schema`, `requestId`, `decision`, `reasonCode`, `ruleIds`)만 담습니다. `docs/DECIDER_REQUEST.md`에 있는 요청 항목만 읽고, 5단계 자료실(`api`, `public`, 다른 `src` 파일)과 보너스 XDR 폴더는 바꾸지 않았습니다. 이번 단계에는 따로 설치할 접속 프로그램이 없고, 인증서·CA·서명 키·기기 개인키는 만들거나 저장소에 넣지 않았습니다. 이 규칙은 기기 등록 여부만 보며, 읽기와 쓰기를 따로 가르는 규칙은 아직 없습니다.
+
+**확인 순서** (저장소 루트에서)
+
+1. `npm run decider:test`를 실행합니다.
+2. 출력에 `통과 · 등록 기기의 정상 요청`과 `통과 · 미등록 기기의 가상 요청`이 둘 다 보여야 합니다. 첫 줄은 `allow`, 둘째 줄은 `deny`·`device_not_registered`일 때만 통과로 셉니다.
+3. 두 응답의 내용까지 보려면 다음 명령을 한 번 더 실행합니다.
+
+```
+node --input-type=module -e "import {randomUUID} from 'node:crypto';import {fixtureRequests} from './scripts/fixture-7.mjs';import {decide} from './src/decider.mjs';const {normal}=fixtureRequests();for(const [n,q] of [['등록 기기',normal],['미등록 기기',{...normal,requestId:randomUUID(),deviceRegistered:false}]]){const r=await decide(q);console.log(n,r.decision,r.reasonCode)}"
+```
+
+정상 결과는 `등록 기기 allow approved`, `미등록 기기 deny device_not_registered` 두 줄입니다. `통과`가 아닌 `확인 필요`가 보이면 `src/decider.mjs`의 이번 규칙을 다시 확인합니다.
+
+| 확인한 것 | 결과 | 상태 |
+|---|---|---|
+| `npm run decider:test` | 등록 기기의 정상 요청 통과, 미등록 기기의 가상 요청 통과 | 실행함 (연습용 가상 요청, 2026-10-13) |
+| 두 요청의 응답 내용 | 등록 기기 `allow`·`approved`, 미등록 기기 `deny`·`device_not_registered` | 실행함 (연습용 가상 요청, 2026-10-13) |
+| 등록 기기에서 기존 화면이 열리는지 | 배포 사이트에서 직접 확인 | 미실행 |
+| 미등록 기기의 실제 접속 시도 | 심판이 맡는 부분 | 미실행 |
+| 심판 판정 | 제출 전 | 미실행 |
+
+`decider:test`는 가상 요청으로 하는 연습이며 심판 판정이나 실제 접속 차단의 증거가 아닙니다. 허용에 쓰는 이유 코드 `approved`가 운영 등록부의 허용 코드에 있는지는 이 저장소에서 확인하지 못했습니다.
+
 ## 5단계 현재 상태
 
 `aleph.config.json`의 `step`은 5이고, `originalApiUrl`은 데이터 원본의 쿼리 없는 HTTPS 주소(`…supabase.co/rest/v1/notes`)입니다. `allowedRoutes`는 4단계와 같은 다섯 경로이며, 이제 배포된 `/aleph.json`에도 함께 나옵니다(`scripts/deployment-identity.mjs`). `judgeIssuer`와 `identityProvider`는 바꾸지 않았습니다.
