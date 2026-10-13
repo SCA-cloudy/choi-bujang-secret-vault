@@ -253,3 +253,36 @@ test('step 6 attack check keeps the anonymous requests and records the device ru
     globalThis.fetch = originalFetch;
   }
 });
+
+test('step 7 attack check keeps the step 6 records and adds the local step-up rule results', async () => {
+  const originalFetch = globalThis.fetch;
+  const requested = [];
+  try {
+    globalThis.fetch = async (url, init) => {
+      requested.push(`${init.method ?? 'GET'} ${new URL(String(url)).pathname}`);
+      if (String(url).endsWith('/data.json')) return new Response('Not found', { status: 404 });
+      return new Response(JSON.stringify({ error: 'LOGIN_REQUIRED' }), {
+        status: 401, headers: { 'content-type': 'application/json' },
+      });
+    };
+    const results = await runAttackChecks({
+      ...config, step: 7, originalApiUrl: 'https://example-project.supabase.co/rest/v1/notes',
+    });
+    assert.equal(requested.length, 6);
+    assert.deepEqual(results.map(item => item.attackId).slice(6), [
+      'decider_unregistered_device_denied', 'decider_registered_read_allowed',
+      'decider_registered_write_denied', 'decider_complex_event_step_up',
+      'decider_normal_event_allowed', 'decider_single_signal_allowed', 'decider_reverified_allowed',
+    ]);
+    assert.match(results[9].observed, /step_up step_up_required/u);
+    assert.match(results[10].observed, /allow approved/u);
+    assert.match(results[11].observed, /allow approved/u);
+    assert.match(results[12].observed, /allow approved/u);
+    for (const item of results) {
+      assert.deepEqual(Object.keys(item).sort(), ['attackId', 'expected', 'observed']);
+      assert.ok(item.expected.length <= 300 && item.observed.length <= 300);
+    }
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});

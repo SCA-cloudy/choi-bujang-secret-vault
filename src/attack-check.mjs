@@ -50,7 +50,7 @@ async function anonymousApiResult(app, path, init = {}) {
 }
 
 export async function runAttackChecks(config) {
-  if (![1, 2, 3, 4, 5, 6].includes(config.step)) {
+  if (![1, 2, 3, 4, 5, 6, 7].includes(config.step)) {
     throw new Error('이 단계의 공격 점검을 src/attack-check.mjs에 구현해 주세요.');
   }
   const app = checkedAppUrl(config);
@@ -126,6 +126,35 @@ export async function runAttackChecks(config) {
       { attackId: 'decider_registered_write_denied',
         expected: '등록 기기의 가상 쓰기 요청(POST)은 이 규칙이 허용하지 않아 deny (판정기 함수를 직접 부른 연습)',
         observed: `판정기에 넣은 가상 요청의 결과: ${await tryDevice(true, 'POST')}` },
+    );
+    if (config.step === 6) return results;
+
+    // 7단계: 판정기의 추가 확인 규칙(step_up_required)을 가상 요청으로 직접 불러 본다.
+    // 6단계와 같이 이 컴퓨터에서 판정기 함수를 부른 연습이며, 사이트로 보낸 요청도 심판의 판정도 아니다.
+    // 엔진이 실제로 다시 로그인한 시각을 넘겨주는 흐름은 이 저장소에서 확인하지 못해 실제 자료 차단은 점검하지 않는다.
+    const tryAccess = async ({ hour, network, count, stepUp }) => {
+      const answer = await decide({
+        requestId: globalThis.crypto.randomUUID(), deviceRegistered: true, method: 'GET',
+        signals: { source: 'judge_fixture', region: 'foreign', network, hour },
+        stepUp: stepUp ?? { verified: false, authAgeSeconds: null },
+        recentEvents: count ? [{ kind: 'risk_signal', ageSeconds: 60, count }] : [],
+      });
+      return `${answer.decision} ${answer.reasonCode}`;
+    };
+    const seenLocal = value => `판정기에 넣은 가상 요청의 결과: ${value}`;
+    results.push(
+      { attackId: 'decider_complex_event_step_up',
+        expected: '평소와 다른 시각·처음 보는 네트워크·갑작스러운 대량 읽기가 겹친 가상 요청은 step_up과 step_up_required (판정기 함수를 직접 부른 연습)',
+        observed: seenLocal(await tryAccess({ hour: 3, network: 'unusual', count: 20 })) },
+      { attackId: 'decider_normal_event_allowed',
+        expected: '정상 시각·익숙한 네트워크의 가상 읽기 요청은 allow (판정기 함수를 직접 부른 연습)',
+        observed: seenLocal(await tryAccess({ hour: 14, network: 'usual', count: 0 })) },
+      { attackId: 'decider_single_signal_allowed',
+        expected: '신호가 하나뿐(낯선 지역·시각만 다름)인 가상 읽기 요청은 영구 차단 없이 allow (판정기 함수를 직접 부른 연습)',
+        observed: seenLocal(await tryAccess({ hour: 3, network: 'usual', count: 0 })) },
+      { attackId: 'decider_reverified_allowed',
+        expected: '복합 사건이라도 추가 확인을 마친 뒤(60초 전) 다시 보낸 가상 요청은 allow (판정기 함수를 직접 부른 연습)',
+        observed: seenLocal(await tryAccess({ hour: 3, network: 'unusual', count: 20, stepUp: { verified: true, authAgeSeconds: 60 } })) },
     );
     return results;
   }
