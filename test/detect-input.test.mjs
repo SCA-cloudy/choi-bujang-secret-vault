@@ -53,8 +53,8 @@ test('배열이 아니면 사건 내용을 담지 않은 오류를 낸다', () =
   }
 });
 
-test('이번 단계에서 detect의 결과는 그대로 observe이다', () => {
+test('정상 조회와 빈 입력은 observe이고, 입력 읽기는 탐지 규칙과 별개로 동작한다', () => {
   assert.deepEqual(detect(reads(30)), { action: 'observe' });
-  assert.deepEqual(detect(reads(200)), { action: 'observe' });
   assert.deepEqual(detect([]), { action: 'observe' });
+  assert.equal(readDetectionEvents(reads(200)).length, 200);
 });
