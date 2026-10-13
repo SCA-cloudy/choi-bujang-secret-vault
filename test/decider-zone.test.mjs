@@ -9,8 +9,8 @@ const { normal } = fixtureRequests();
 const ask = (change) => decide({ ...normal, requestId: randomUUID(), ...change });
 const ID = '11111111-2222-4333-8444-555555555555';
 
-test('자기 메모 구역: 목록 읽기·한 건 읽기·수정은 허용', async () => {
-  for (const [method, route, path] of [['GET', 'GET /notes', '/notes'], ['GET', 'GET /notes/:id', `/notes/${ID}`], ['PUT', 'PUT /notes/:id', `/notes/${ID}`]]) {
+test('자기 메모 구역: 한 건 읽기·수정은 허용', async () => {
+  for (const [method, route, path] of [['GET', 'GET /notes/:id', `/notes/${ID}`], ['PUT', 'PUT /notes/:id', `/notes/${ID}`]]) {
     const answer = await ask({ method, route, path });
     assert.equal(answer.decision, 'allow', route);
     assert.deepEqual(answer.ruleIds, ['device_registered', 'resource_zone']);
@@ -32,6 +32,8 @@ test('강사 공지 수정(일반 학생)은 거부하고, 공지 읽기도 이�
 
 test('이번 규칙이 열지 않는 동작과 알 수 없는 경로는 모두 거부', async () => {
   const cases = [
+    { method: 'GET', route: 'GET /notes', path: '/notes' },
+    { method: 'GET', route: 'GET /api/notes', path: '/api/notes' },
     { method: 'POST', route: 'POST /notes', path: '/notes' },
     { method: 'DELETE', route: 'DELETE /notes/:id', path: `/notes/${ID}` },
     { method: 'GET', route: 'GET /admin', path: '/admin' },
@@ -70,7 +72,7 @@ test('쿼리 정보와 요청에 덧붙은 role·owner 같은 이름은 구역 �
 });
 
 test('이전 규칙은 그대로: 미등록 기기는 구역보다 먼저 거부, 복합 이상은 추가 확인', async () => {
-  const unregistered = await ask({ deviceRegistered: false, method: 'GET', route: 'GET /notes', path: '/notes' });
+  const unregistered = await ask({ deviceRegistered: false, method: 'GET', route: 'GET /notes/:id', path: `/notes/${ID}` });
   assert.deepEqual([unregistered.decision, unregistered.reasonCode, unregistered.ruleIds], ['deny', 'device_not_registered', ['device_registered']]);
   const { suspicious } = fixtureRequests();
   assert.equal((await decide(suspicious)).decision, 'step_up');
@@ -81,7 +83,7 @@ test('RULE_IDS에는 구현한 세 규칙만 있고, 판정기의 구역 표는 
   assert.deepEqual([...RULE_IDS], ['device_registered', 'step_up_required', 'resource_zone']);
   for (const route of ['GET /notes', 'POST /notes', 'GET /notes/:id', 'PUT /notes/:id', 'DELETE /notes/:id', 'GET /notices', 'GET /notices/:id', 'PUT /notices/:id']) {
     const [method, path] = route.split(' ');
-    const allowedHere = resourceIdOf(route) === 'note.own' && ['GET /notes', 'GET /notes/:id', 'PUT /notes/:id'].includes(route);
+    const allowedHere = resourceIdOf(route) === 'note.own' && ['GET /notes/:id', 'PUT /notes/:id'].includes(route);
     const answer = await ask({ method, route, path: path.replace(':id', ID) });
     assert.equal(answer.decision === 'allow', allowedHere, route);
   }

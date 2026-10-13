@@ -67,7 +67,8 @@ const isComplexAnomaly = info => Object.values(stepUpSignals(info)).every(Boolea
 // 8단계 규칙 resource_zone: 자료를 구역(자원 ID)으로 나누고, 엔진이 확인한 method·route·path만으로 판단합니다.
 // - 이 파일 혼자 불러도 동작하도록 표를 안에 둡니다. src/resources.mjs의 표와 같아야 하며 test/decider-zone.test.mjs가 둘을 대조합니다.
 // - 자원 ID는 경로 모양(route)에서만 고릅니다. 쿼리(queryLength·querySha256)는 기능을 고르는 데 쓰지 않습니다.
-// - 허용하는 것은 내 메모 구역(note.own)의 읽기·수정뿐입니다: GET /notes, GET /notes/:id, PUT /notes/:id.
+// - 허용하는 것은 내 메모 구역(note.own)의 메모 한 건 읽기·수정뿐입니다: GET /notes/:id, PUT /notes/:id.
+//   메모 전체 목록(GET /notes)은 여러 사람의 자료를 한꺼번에 여는 경로가 될 수 있어 열지 않습니다.
 //   그 밖의 동작(추가·삭제), 알 수 없는 경로, 모양이 다른 경로는 모두 거부합니다.
 // - 강사 공지(notice.instructor)는 거부합니다. 요청 계약에 강사 역할이 없어서 판정기가 강사인지 확인할 수 없고,
 //   요청 본문·메뉴의 role 같은 값은 믿지 않으므로 공지 수정은 열 수 없습니다.
@@ -82,7 +83,7 @@ const ZONE_RESOURCES = Object.freeze({
   'GET /notices/:id': 'notice.instructor',
   'PUT /notices/:id': 'notice.instructor',
 });
-const OWN_NOTE_ACTIONS = Object.freeze(['GET /notes', 'GET /notes/:id', 'PUT /notes/:id']);
+const OWN_NOTE_ACTIONS = Object.freeze(['GET /notes/:id', 'PUT /notes/:id']);
 // :id 자리에 기능 이름이 들어 있으면(예: /notes/export) 자료 번호가 아니라 기능 경로이므로 거부합니다.
 const FUNCTION_WORDS = Object.freeze(['export', 'import', 'search', 'list', 'all', 'bulk', 'batch', 'backup', 'download', 'admin', 'me', 'new']);
 const ID_SEGMENT = /^[A-Za-z0-9_-]{1,64}$/u;
@@ -93,11 +94,8 @@ function inOwnNoteZone(request) {
   if (!Object.hasOwn(ZONE_RESOURCES, shape) || ZONE_RESOURCES[shape] !== 'note.own') return false;
   if (!OWN_NOTE_ACTIONS.includes(shape) || shape.split(' ')[0] !== request.method) return false;
   const path = request.path.replace(/^\/api\//u, '/');
-  if (shape.endsWith(':id')) {
-    const match = /^\/notes\/([^/]+)$/u.exec(path);
-    return match !== null && ID_SEGMENT.test(match[1]) && !FUNCTION_WORDS.includes(match[1].toLowerCase());
-  }
-  return path === '/notes';
+  const match = /^\/notes\/([^/]+)$/u.exec(path);
+  return match !== null && ID_SEGMENT.test(match[1]) && !FUNCTION_WORDS.includes(match[1].toLowerCase());
 }
 
 export async function decide(request) {
@@ -112,7 +110,7 @@ export async function decide(request) {
       ruleIds: [RULE_IDS[0]],
     };
   }
-  // 8단계 규칙 resource_zone: 등록 기기라도 내 메모 구역의 읽기·수정이 아니면 거부합니다.
+  // 8단계 규칙 resource_zone: 등록 기기라도 내 메모 한 건의 읽기·수정이 아니면 거부합니다.
   // (읽기가 아닌 동작 중 추가·삭제, 강사 공지, 알 수 없는 경로, 모양이 다른 경로가 모두 여기서 거부됩니다.)
   if (!inOwnNoteZone(request)) {
     return {
