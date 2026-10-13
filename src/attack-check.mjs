@@ -50,7 +50,7 @@ async function anonymousApiResult(app, path, init = {}) {
 }
 
 export async function runAttackChecks(config) {
-  if (![1, 2, 3, 4, 5, 6, 7].includes(config.step)) {
+  if (![1, 2, 3, 4, 5, 6, 7, 8].includes(config.step)) {
     throw new Error('이 단계의 공격 점검을 src/attack-check.mjs에 구현해 주세요.');
   }
   const app = checkedAppUrl(config);
@@ -157,6 +157,30 @@ export async function runAttackChecks(config) {
       { attackId: 'decider_reverified_allowed',
         expected: '복합 사건이라도 추가 확인을 마친 뒤(60초 전) 다시 보낸 가상 요청은 allow (판정기 함수를 직접 부른 연습)',
         observed: seenLocal(await tryAccess({ hour: 3, network: 'unusual', count: 20, stepUp: { verified: true, authAgeSeconds: 60 } })) },
+    );
+    if (config.step === 7) return results;
+
+    // 8단계: 판정기의 구역 규칙(resource_zone)을 가상 요청으로 직접 불러 본다.
+    // 7단계와 같이 이 컴퓨터에서 판정기 함수를 부른 연습이며, 사이트로 보낸 요청도 심판의 판정도 아니다.
+    // 남의 메모 차단은 요청 계약에 소유자 정보가 없어 판정기가 아니라 자료 API가 맡으므로 여기서 점검하지 않는다.
+    const sampleId = '11111111-2222-4333-8444-555555555555';
+    const tryZone = async (method, route, path) => {
+      const answer = await decide({
+        requestId: globalThis.crypto.randomUUID(), deviceRegistered: true, method, route, path,
+        stepUp: { verified: false, authAgeSeconds: null },
+      });
+      return seenLocal(`${answer.decision} ${answer.reasonCode}`);
+    };
+    results.push(
+      { attackId: 'decider_own_note_update_allowed',
+        expected: '내 메모 구역(note.own)의 수정(PUT /notes/:id) 가상 요청은 allow (판정기 함수를 직접 부른 연습)',
+        observed: await tryZone('PUT', 'PUT /notes/:id', `/notes/${sampleId}`) },
+      { attackId: 'decider_notice_update_denied',
+        expected: '강사 공지(notice.instructor) 수정(PUT /notices/:id) 가상 요청은 강사 역할을 확인할 수 없어 deny (판정기 함수를 직접 부른 연습)',
+        observed: await tryZone('PUT', 'PUT /notices/:id', `/notices/${sampleId}`) },
+      { attackId: 'decider_unknown_path_denied',
+        expected: '표에 없는 경로와 :id 자리의 기능 이름(/notes/export) 가상 요청은 deny (판정기 함수를 직접 부른 연습)',
+        observed: await tryZone('GET', 'GET /notes/:id', '/notes/export') },
     );
     return results;
   }

@@ -286,3 +286,34 @@ test('step 7 attack check keeps the step 6 records and adds the local step-up ru
     globalThis.fetch = originalFetch;
   }
 });
+
+test('step 8 attack check keeps the step 7 records and adds the local zone rule results', async () => {
+  const originalFetch = globalThis.fetch;
+  const requested = [];
+  try {
+    globalThis.fetch = async (url, init) => {
+      requested.push(`${init.method ?? 'GET'} ${new URL(String(url)).pathname}`);
+      if (String(url).endsWith('/data.json')) return new Response('Not found', { status: 404 });
+      return new Response(JSON.stringify({ error: 'LOGIN_REQUIRED' }), {
+        status: 401, headers: { 'content-type': 'application/json' },
+      });
+    };
+    const results = await runAttackChecks({
+      ...config, step: 8, originalApiUrl: 'https://example-project.supabase.co/rest/v1/notes',
+    });
+    assert.equal(requested.length, 6);
+    assert.deepEqual(results.map(item => item.attackId).slice(13), [
+      'decider_own_note_update_allowed', 'decider_notice_update_denied', 'decider_unknown_path_denied',
+    ]);
+    assert.equal(results.length, 16);
+    assert.match(results[13].observed, /allow approved/u);
+    assert.match(results[14].observed, /deny starter_not_ready/u);
+    assert.match(results[15].observed, /deny starter_not_ready/u);
+    for (const item of results) {
+      assert.deepEqual(Object.keys(item).sort(), ['attackId', 'expected', 'observed']);
+      assert.ok(item.expected.length <= 300 && item.observed.length <= 300);
+    }
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
