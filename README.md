@@ -30,8 +30,26 @@
 |---|---|---|
 | `npm run bundle` (내 PC, 커밋 `04e1410`) | 단계 12 · 직접 점검 20개 · 규칙 3개. 직접 보낸 요청의 결과이며 심판의 판정이 아님 | 실행함 (2026-10-14) |
 | 새로 받은 폴더에서 `npm install` (커밋 `04e1410`) | `added 10 packages`, `found 0 vulnerabilities` | 실행함 (내 PC, 2026-10-14) |
-| 심판 판정 | 제출 전 | 미실행 |
+| 심판 판정 | 첫 제출(커밋 `d1a424e`): 이 단계 **0 / 100점**, 기록 코드 `S12_BUNDLE_UNSUPPORTED`(제출 묶음 명령이 격리 환경에서 읽기 외 요청을 보내 끝까지 실행되지 못함). 고친 뒤 다시 제출한 결과는 아직 없음 | 첫 제출 실행함 / 재제출 미실행 |
 | 운영 41종 공격 시험 | 심판이 실행. 이 저장소의 표·화면은 통과 근거가 아님 | 미실행 |
+
+### 심판 격리 환경에 맞춘 수정 (`S12_BUNDLE_UNSUPPORTED`)
+
+**무슨 일이 있었나:** 12단계 첫 제출(`d1a424e`)에서 심판이 「`npm run bundle`이 GET·HEAD가 아닌 요청(POST·PUT 등)을 보냅니다」라며 제출 묶음 명령을 끝까지 실행하지 못했다고 알렸습니다(0 / 100점). 심판의 안내: 격리 환경에서는 `node:fs`·`node:path`·`node:url`·`node:child_process`(git 읽기)·`node:crypto`(`randomUUID`·`sha256`)만 쓸 수 있고, 요청은 공개 HTTPS 주소로 보내는 GET·HEAD만 되며, 쓰기 요청이 필요한 점검은 `observed`를 `not_run`으로 둡니다.
+
+**원인과 고친 것 (`src/attack-check.mjs`, 12단계 이상에서만):** 자기 점검 20개 중 5개가 이 규칙을 어겼습니다. 이 5개는 요청이나 서명 계산을 하지 않고 `observed`를 `not_run`으로 기록합니다. 점검 개수와 순서는 20개 그대로입니다.
+
+| 점검 | 어긴 것 | 지금 기록 |
+|---|---|---|
+| `anonymous_note_create` | `POST /api/notes` | `not_run` |
+| `anonymous_note_update` | `PUT /api/notes/:id` | `not_run` |
+| `anonymous_note_delete` | `DELETE /api/notes/:id` | `not_run` |
+| `anonymous_restore_request` | `POST /api/restore` | `not_run` |
+| `device_signature_tamper_denied` | 기기 서명 계산과 확인에 `webcrypto.subtle`, `createPublicKey`, `verify`(허용 목록 밖의 `node:crypto` 기능) | `not_run` |
+
+나머지 15개(GET 요청 점검, 판정기·탐지 함수를 가상 요청으로 부른 연습)는 그대로이고, 11단계 이하의 자기 점검 동작도 그대로입니다. 이 5개는 이번 단계부터 「실행하지 않음」이며, 11단계 README에 적은 기기 서명 연습 결과는 11단계 저장점 시점의 기록입니다.
+
+**확인한 것 (클라우드, 2026-10-14):** `node --test` 147개 중 146개 통과(알려진 실패 `package-starter` 1개), 새 시험은 12단계 점검이 GET만 보내고 `not_run`이 정확히 위 5개임을 검사합니다. 심판의 제한(GET·HEAD만, `node:crypto`는 `randomUUID`·`sha256`만, 허용 밖 `node:` 기능 차단)을 흉내 낸 임시 환경에서, 고치기 전 코드는 첫 오류 `POST 요청은 격리 환경에서 보낼 수 없습니다 (/api/notes)`로 멈췄고 고친 코드는 요청 GET 4번으로 `단계 12 · 직접 점검 20개`까지 끝났습니다. **한계:** 이 임시 환경은 심판의 안내문을 보고 제가 흉내 낸 것이며 실제 심판 환경과 같다는 보장은 없습니다. 내 PC의 `npm run bundle`과 심판 재제출은 실제로 한 뒤에 적습니다.
 
 ### 제작 1: 탈환 작전실 (`GET /api/ops` + 화면)
 

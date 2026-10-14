@@ -63,13 +63,17 @@ export async function runAttackChecks(config) {
     const missingId = '00000000-0000-4000-8000-000000000000';
     const staticData = await anonymousNoteCount(app, '/data.json');
     const list = await anonymousApiResult(app, '/api/notes');
-    const create = await anonymousApiResult(app, '/api/notes', {
+    // 12단계부터 심판은 제출 묶음 명령을 격리 환경(GET·HEAD 요청만, node:crypto는 randomUUID·sha256만)에서 실행한다(S12_BUNDLE_UNSUPPORTED).
+    // 그래서 12단계 이상에서는 쓰기 요청(POST·PUT·DELETE)이나 기기 서명 계산이 필요한 점검은 요청·계산을 하지 않고 observed를 not_run으로 둔다.
+    const isolated = config.step >= 12;
+    const NOT_RUN = 'not_run';
+    const create = isolated ? null : await anonymousApiResult(app, '/api/notes', {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}',
     });
-    const update = await anonymousApiResult(app, `/api/notes/${missingId}`, {
+    const update = isolated ? null : await anonymousApiResult(app, `/api/notes/${missingId}`, {
       method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: '{}',
     });
-    const remove = await anonymousApiResult(app, `/api/notes/${missingId}`, { method: 'DELETE' });
+    const remove = isolated ? null : await anonymousApiResult(app, `/api/notes/${missingId}`, { method: 'DELETE' });
     const seen = result => `비로그인 요청에서 HTTP ${result.status}, 오류 문구 ${result.errorCode}, 가상 메모 ${result.noteCount}건이 보임`;
     const results = [
       { attackId: 'static_data_json_read',
@@ -80,13 +84,13 @@ export async function runAttackChecks(config) {
         observed: seen(list) },
       { attackId: 'anonymous_note_create',
         expected: '로그인 없이 메모 추가를 요청하면 401 또는 403으로 거부',
-        observed: seen(create) },
+        observed: isolated ? NOT_RUN : seen(create) },
       { attackId: 'anonymous_note_update',
         expected: '로그인 없이 메모 수정을 요청하면 401 또는 403으로 거부 (없는 가짜 번호로 시험)',
-        observed: seen(update) },
+        observed: isolated ? NOT_RUN : seen(update) },
       { attackId: 'anonymous_note_delete',
         expected: '로그인 없이 메모 삭제를 요청하면 401 또는 403으로 거부 (없는 가짜 번호로 시험)',
-        observed: seen(remove) },
+        observed: isolated ? NOT_RUN : seen(remove) },
     ];
     if (config.step === 4) return results;
 
@@ -213,47 +217,52 @@ export async function runAttackChecks(config) {
     // 실제로 있는 메모의 번호는 쓰지 않고 없는 가짜 번호로만 보내, 어떤 메모도 바뀌지 않는다.
     // 로그인한 시험 계정 B로 변조·삭제 뒤 복구하는 확인은 로그인이 필요해 이 점검에 넣지 않고, 직접 확인한 결과를 README에 따로 적는다.
     // 제출 묶음은 직접 점검을 20개까지만 받으므로 10단계에서는 이 한 개만 더한다.
-    const restore = await anonymousApiResult(app, '/api/restore', {
+    const restore = isolated ? null : await anonymousApiResult(app, '/api/restore', {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: missingId }),
     });
     results.push({ attackId: 'anonymous_restore_request',
       expected: '로그인 없이 복구를 요청하면 401 또는 403으로 거부 (없는 가짜 번호로 시험)',
-      observed: seen(restore) });
+      observed: isolated ? NOT_RUN : seen(restore) });
     if (config.step === 10) return results;
 
     // 11단계: 서버의 기기 확인 함수(src/device-auth.mjs)를 가상 요청으로 직접 불러 본다. 이 컴퓨터에서 함수를 부른 연습이며
     // 사이트로 보낸 요청도 심판의 판정도 아니다(배포 사이트의 승인 흐름과 괴물 세 마리 재현은 README에 따로 적는다).
     // 이 연습용 기기 키는 이 함수 안에서만 만들고 버린다. 키·서명·사용자 번호는 기록하지 않는다.
     // 제출 묶음은 직접 점검을 20개까지만 받으므로 7단계의 단일 신호 허용 점검 한 개를 빼고 이 한 개를 넣는다.
-    const { checkDevice, canonicalRequest, deviceIdOf } = await import('./device-auth.mjs');
-    const { createHash, webcrypto } = await import('node:crypto');
-    const pair = await webcrypto.subtle.generateKey({ name: 'ECDSA', namedCurve: 'P-256' }, false, ['sign', 'verify']);
-    const { kty, crv, x, y } = await webcrypto.subtle.exportKey('jwk', pair.publicKey);
-    const deviceId = deviceIdOf({ kty, crv, x, y });
-    const owner = 'device-practice-owner';
-    const store = { getDevice: async id => (id === deviceId ? { owner_id: owner, public_key: { kty, crv, x, y }, status: 'approved' } : null) };
-    const at = Date.UTC(2026, 9, 14, 0, 0, 0);
-    const sha = text => createHash('sha256').update(text, 'utf8').digest('hex');
-    const signed = async (method, path, body = '') => {
-      const message = canonicalRequest({ method, path, timestamp: at, bodySha256: sha(body) });
-      const signature = await webcrypto.subtle.sign({ name: 'ECDSA', hash: 'SHA-256' }, pair.privateKey, new TextEncoder().encode(message));
-      return { 'x-device-id': deviceId, 'x-device-time': String(at), 'x-device-signature': Buffer.from(signature).toString('base64url') };
-    };
-    const tryDeviceCheck = async request => {
-      const answer = await checkDevice(request, { userId: owner }, { store, now: () => at });
-      return answer.ok ? 'allow' : answer.error;
-    };
-    const noteA = `/api/notes/${missingId}`;
-    const noteB = '/api/notes/00000000-0000-4000-8000-000000000001';
-    const unsigned = await tryDeviceCheck({ method: 'GET', url: '/api/notes', headers: {} });
-    const moved = await tryDeviceCheck({ method: 'DELETE', url: noteB, headers: await signed('DELETE', noteA) });
-    const tampered = await tryDeviceCheck({ method: 'PUT', url: noteA, headers: await signed('PUT', noteA, JSON.stringify({ title: 't', body: 'signed' })), body: { title: 't', body: 'changed' } });
-    const normal = await tryDeviceCheck({ method: 'GET', url: '/api/notes', headers: await signed('GET', '/api/notes') });
+    // 격리 환경에서는 기기 서명을 만들고 확인하는 암호 기능(node:crypto의 webcrypto·createPublicKey·verify)을 쓸 수 없어 not_run으로 둔다.
+    let deviceObserved = NOT_RUN;
+    if (!isolated) {
+      const { checkDevice, canonicalRequest, deviceIdOf } = await import('./device-auth.mjs');
+      const { createHash, webcrypto } = await import('node:crypto');
+      const pair = await webcrypto.subtle.generateKey({ name: 'ECDSA', namedCurve: 'P-256' }, false, ['sign', 'verify']);
+      const { kty, crv, x, y } = await webcrypto.subtle.exportKey('jwk', pair.publicKey);
+      const deviceId = deviceIdOf({ kty, crv, x, y });
+      const owner = 'device-practice-owner';
+      const store = { getDevice: async id => (id === deviceId ? { owner_id: owner, public_key: { kty, crv, x, y }, status: 'approved' } : null) };
+      const at = Date.UTC(2026, 9, 14, 0, 0, 0);
+      const sha = text => createHash('sha256').update(text, 'utf8').digest('hex');
+      const signed = async (method, path, body = '') => {
+        const message = canonicalRequest({ method, path, timestamp: at, bodySha256: sha(body) });
+        const signature = await webcrypto.subtle.sign({ name: 'ECDSA', hash: 'SHA-256' }, pair.privateKey, new TextEncoder().encode(message));
+        return { 'x-device-id': deviceId, 'x-device-time': String(at), 'x-device-signature': Buffer.from(signature).toString('base64url') };
+      };
+      const tryDeviceCheck = async request => {
+        const answer = await checkDevice(request, { userId: owner }, { store, now: () => at });
+        return answer.ok ? 'allow' : answer.error;
+      };
+      const noteA = `/api/notes/${missingId}`;
+      const noteB = '/api/notes/00000000-0000-4000-8000-000000000001';
+      const unsigned = await tryDeviceCheck({ method: 'GET', url: '/api/notes', headers: {} });
+      const moved = await tryDeviceCheck({ method: 'DELETE', url: noteB, headers: await signed('DELETE', noteA) });
+      const tampered = await tryDeviceCheck({ method: 'PUT', url: noteA, headers: await signed('PUT', noteA, JSON.stringify({ title: 't', body: 'signed' })), body: { title: 't', body: 'changed' } });
+      const normal = await tryDeviceCheck({ method: 'GET', url: '/api/notes', headers: await signed('GET', '/api/notes') });
+      deviceObserved = `기기 확인 함수에 넣은 가상 요청의 결과: 서명 없음 ${unsigned}, 경로 변경 ${moved}, 본문 변경 ${tampered}, 올바른 서명 ${normal}`;
+    }
     const index = results.findIndex(item => item.attackId === 'decider_single_signal_allowed');
     if (index >= 0) results.splice(index, 1);
     results.push({ attackId: 'device_signature_tamper_denied',
       expected: '승인된 기기라도 서명 없음은 DEVICE_SIGNATURE_REQUIRED, 서명 뒤 경로·본문 변경은 DEVICE_SIGNATURE_INVALID, 올바른 서명은 allow (기기 확인 함수를 직접 부른 연습)',
-      observed: `기기 확인 함수에 넣은 가상 요청의 결과: 서명 없음 ${unsigned}, 경로 변경 ${moved}, 본문 변경 ${tampered}, 올바른 서명 ${normal}` });
+      observed: deviceObserved });
     if (config.step === 11) return results;
 
     // 12단계: 탈환 작전실 요약(GET /api/ops)을 로그인 없이 불러 본다. 작전실은 로그인과 승인된 기기의 서명이 있어야 열리므로 거부되어야 한다.

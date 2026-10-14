@@ -428,6 +428,12 @@ test('step 12 attack check keeps 20 records, swaps one overlapping step 7 practi
     const results = await runAttackChecks({ ...base, step: 12 });
     assert.equal(results.length, 20);
     assert.equal(requested.at(-1), 'GET /api/ops');                                  // 사이트로 실제 보낸 요청, 읽기 한 번
+    // 심판의 격리 환경(S12_BUNDLE_UNSUPPORTED): 12단계 점검은 GET만 보내고, 쓰기 요청·기기 서명이 필요한 5개는 요청 없이 not_run
+    assert.ok(requested.length > 0 && requested.every(line => line.startsWith('GET ')), requested.join(', '));
+    assert.deepEqual(results.filter(item => item.observed === 'not_run').map(item => item.attackId).sort(),
+      ['anonymous_note_create', 'anonymous_note_delete', 'anonymous_note_update', 'anonymous_restore_request', 'device_signature_tamper_denied']);
+    assert.equal(results.filter(item => item.observed === 'not_run').length, 5);
+    assert.ok(eleven.some(item => item.observed !== 'not_run' && item.attackId === 'anonymous_note_create')); // 11단계 이하 결과는 그대로
     assert.ok(!requested.some(line => line.startsWith('POST /api/ops') || line.startsWith('PUT /api/ops') || line.startsWith('DELETE /api/ops')));
     assert.ok(!results.some(item => item.attackId === 'decider_normal_event_allowed'));
     assert.equal(results.at(-1).attackId, 'anonymous_ops_request');
