@@ -39,7 +39,8 @@ async function tamper(base) {
 }
 
 test('설정 파일을 JSON으로 다시 써도 allowedRoutes 밖의 모양은 그대로다', async () => {
-  const text = await readFile(resolve(REPO_ROOT, 'aleph.config.json'), 'utf8');
+  // Windows에서 받으면 파일 줄바꿈이 이미 CRLF일 수 있어, 먼저 LF로 통일한 뒤 LF·CRLF 두 경우를 모두 시험한다.
+  const text = (await readFile(resolve(REPO_ROOT, 'aleph.config.json'), 'utf8')).replace(/\r\n/gu, '\n');
   const same = JSON.parse(text).allowedRoutes;
   assert.equal(setAllowedRoutes(text, same), text);
   assert.deepEqual(mergeRoutes(['B', 'X', 'A'], ['A', 'B', 'C']), ['B', 'A', 'C']);
