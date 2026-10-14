@@ -45,6 +45,24 @@
 | `007_devices.sql` 실행 | `Success. No rows returned` | 실행함 (SQL Editor, 2026-10-14) |
 | `public.devices` 권한 | `anon`·`authenticated` `(없음)`, `service_role` `INSERT, SELECT` | 실행함 (SQL Editor, 2026-10-14) |
 
+**2단계 서버 (`src/device-auth.mjs`, `src/device-api.mjs`, `api/device/request.js`, `api/device/status.js`):**
+- 기기 번호는 공개 키(crv, x, y)의 sha256 앞 16자리(소문자 16진수)입니다. 공개 키만 받고, 개인키(`d`)가 들어 있으면 거부합니다.
+- `POST /api/device/request`: 로그인과 **그 키로 서명한 요청(키 소유 증명)**을 확인한 뒤 `devices`에 **「승인 대기」로만** 등록합니다. 이 요청으로 권한이 생기지 않고, 남이 같은 기기 번호를 등록하면 `409`입니다.
+- `GET /api/device/status`: 서명한 요청으로 이 기기의 상태(`pending`/`approved`)만 알려 줍니다. 자료는 주지 않습니다.
+- 메모(`/api/notes`, `/api/notes/:id`)·복구(`/api/restore`)는 로그인 확인 바로 다음에 기기 확인을 합니다. 요청 헤더 `X-Device-Id`, `X-Device-Time`(ms), `X-Device-Signature`(ECDSA P-256, base64url)에 대해 서버는 다음을 모두 확인합니다: 기기가 그 사용자의 것이고 `approved`인지, `BYTEBACK-DEVICE-V1`·방식·**경로**·시각·**본문 sha256**으로 만든 글자열의 서명이 등록된 공개 키로 맞는지, 시각이 2분 안인지, 쿼리의 `id`가 경로의 메모 번호와 같은지. 하나라도 아니면 `403`(`DEVICE_SIGNATURE_REQUIRED`, `DEVICE_SIGNATURE_INVALID`, `DEVICE_NOT_REGISTERED`, `DEVICE_NOT_APPROVED`)이고 자료를 주지 않습니다. 서버 기록에는 이유 코드만 남깁니다.
+
+**3단계 화면 (`public/index.html`):** 로그인 출입증과 기기 키를 **화면 메모리에만** 둡니다(`localStorage`·`sessionStorage`·IndexedDB에 넣지 않고, 예전 버전이 남긴 `byteback-session`은 지움). 로그인하면 **꺼낼 수 없는** ECDSA P-256 기기 키를 만들고 상태를 묻습니다. 「이 기기 승인 요청」은 대기 등록만 하며, 화면에는 승인 버튼이 없습니다. **승인 전에는 메모 요청을 보내지 않고** 쓰기 칸과 목록을 숨기며, 승인 뒤에는 모든 메모 요청에 서명을 붙입니다. 새로고침하거나 창을 닫으면 출입증과 기기 키가 사라져 다시 로그인하고 다시 승인받아야 합니다(의도한 동작).
+
+**승인 방법(학생이 SQL Editor에서):** `update public.devices set status = 'approved', approved_at = now() where device_id = '<화면의 기기 번호>' and status = 'pending';`
+
+| 확인 | 결과 | 상태 |
+|---|---|---|
+| `node --test test/device-auth.test.mjs` (7개, WebCrypto 키로 실제 서명) | 승인 요청은 로그인·키 소유 서명이 있어야 대기로만 등록, 대기 상태는 자료 403. 승인 뒤 목록·추가·수정·삭제·복구 경로 동작. 괴물 1(서명 없음)·2(서명 뒤 경로·쿼리 id·방식 변경)·3(서명 뒤 수정·추가 본문 변경) 모두 403, 메모 그대로. 오래된 서명·남의 기기·취소된 기기 403, 서버 기록에 기기 번호·키·사용자 ID 없음 | 실행함 (클라우드, 2026-10-14) |
+| 화면 시험 `test/app-shell.test.mjs` (5개) | 브라우저 저장소 쓰기 없음, 꺼낼 수 없는 키, 서버와 같은 서명 글자열·헤더, 승인 전 자료 요청 없음, 승인 버튼 없음 | 실행함 (클라우드, 2026-10-14) |
+| 브라우저(Chromium) + 실제 서버 코드(메모리 저장소)로 끝까지 | 로그인 → 「미등록」·자료 숨김 → 승인 요청 → 「승인 대기」(서버 표 `pending`, 개인키 없음) → 서버 쪽 승인 → 「승인됨」·목록 열림 → 서명한 요청으로 메모 추가. 브라우저 저장소 0, 새로고침하면 로그아웃, 페이지 오류 0 | 실행함 (클라우드, 2026-10-14) |
+| 전체 시험 | 138개 중 137개(알려진 실패 `package-starter` 1개). 기존 메모·복구 시험과 복원 훈련은 기기 확인을 시험 안에서만 대신하고 메모 논리를 봄 | 실행함 (클라우드, 2026-10-14) |
+| 배포 사이트에서 승인 흐름과 괴물 세 마리 재현 | 배포 뒤 B 계정·SQL Editor·콘솔로 확인 | 미실행 |
+
 ## 10단계 현재 상태 (백업에서 자료실을 되살립니다, 2026-10-14 저장점)
 
 `aleph.config.json`의 `step`을 10으로 올렸습니다. 허용 경로(`allowedRoutes` 다섯 개), 로그인 발급자, 원본 API 주소, `judgeIssuer`는 9단계와 같고, 복구 경로는 `restoreRoute`에 `POST /api/restore`로 적었습니다. `RULE_IDS`는 판정기의 구현된 규칙 세 개(`device_registered`, `step_up_required`, `resource_zone`) 그대로이며, 정책 되돌리기·복구는 판정기 규칙이 아니라 `RULE_IDS`에 넣지 않았습니다. 자기 점검 `src/attack-check.mjs`는 10단계에서 9단계의 기록 열아홉 개를 그대로 남기고, 로그인 없이 복구 경로를 부른 결과 한 개(`anonymous_restore_request`, 없는 가짜 번호만 사용)를 더해 모두 스무 개를 기록합니다. 제출 묶음이 받는 직접 점검의 최대 개수가 스무 개라서 10단계에서는 이 한 개만 더했습니다. 이 한 개는 사이트로 실제로 보낸 요청의 결과이며 심판의 판정이 아닙니다.
