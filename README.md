@@ -22,7 +22,28 @@
 
 `aleph.config.json`의 `step`을 10으로 올렸습니다. 허용 경로(`allowedRoutes` 다섯 개), 로그인 발급자, 원본 API 주소, `judgeIssuer`는 9단계와 같고, 복구 경로는 `restoreRoute`에 `POST /api/restore`로 적었습니다. `RULE_IDS`는 판정기의 구현된 규칙 세 개(`device_registered`, `step_up_required`, `resource_zone`) 그대로이며, 정책 되돌리기·복구는 판정기 규칙이 아니라 `RULE_IDS`에 넣지 않았습니다. 자기 점검 `src/attack-check.mjs`는 10단계에서 9단계의 기록 열아홉 개를 그대로 남기고, 로그인 없이 복구 경로를 부른 결과 한 개(`anonymous_restore_request`, 없는 가짜 번호만 사용)를 더해 모두 스무 개를 기록합니다. 제출 묶음이 받는 직접 점검의 최대 개수가 스무 개라서 10단계에서는 이 한 개만 더했습니다. 이 한 개는 사이트로 실제로 보낸 요청의 결과이며 심판의 판정이 아닙니다.
 
-**지금 작동하는 기능(10단계):** 정책 사본 차이 보기(`npm run policy:diff`, 읽기 전용), 검증한 정책 사본으로 되돌리기(`npm run policy:restore`, 미리보기 후 `--apply --confirm <지문>`), 메모 한 건 복구 경로(`POST /api/restore`, 실행 전 미리 보기 `preview`), 사전 백업 다시 읽어 검증(`supabase/006_verify_notes_backup.sql`), 백업 복원 훈련과 기록(`npm run backup:drill` → `policy/restore-drill.json`). 1~9단계 기능은 그대로입니다.
+**지금 작동하는 기능(10단계):** 복원 전 사본 검증 절차(`npm run backup:verify`, 복원 전에 반드시 거침), 정책 사본 차이 보기(`npm run policy:diff`, 읽기 전용), 검증한 정책 사본으로 되돌리기(`npm run policy:restore`, 미리보기 후 `--apply --confirm <지문>`), 메모 한 건 복구 경로(`POST /api/restore`, 실행 전 미리 보기 `preview`), 사전 백업 다시 읽어 검증(`supabase/006_verify_notes_backup.sql`), 백업 복원 훈련과 기록(`npm run backup:drill` → `policy/restore-drill.json`). 1~9단계 기능은 그대로입니다.
+
+### 복원 전 사본 검증 절차 (`npm run backup:verify`)
+
+복원은 **이 절차를 먼저 따로 통과해야만** 실행됩니다. `npm run policy:restore`는 시작할 때 이 절차(`scripts/backup-verify.mjs`의 `verifyBeforeRestore`)를 그대로 거치고, 통과하지 못하면 아무것도 하지 않고 멈춥니다. 절차만 따로 실행하려면 `npm run backup:verify`를 씁니다(파일·정책·DB를 하나도 바꾸지 않음, 실패하면 종료 코드 1).
+
+1. **사본 읽기:** `policy/safe-policy.json`이 있는지 확인합니다. 없으면 `중단`하고 복원하지 않습니다.
+2. **사본 검증:** 모양, 사본 안의 지문, 사본에 적힌 원본 커밋(침해 전 저장점 `a15d850`)을 git 기록에서 다시 읽어 계산한 지문을 대조합니다. 하나라도 다르면 `중단`합니다(`digest_mismatch`, `source_mismatch`, `source_unreadable`).
+3. **사본 다시 읽기:** 사본을 한 번 더 읽어 같은 방법으로 검증하고, 지문이 처음과 같은지 확인합니다. 다르면 `중단`합니다(`reread_mismatch`).
+4. **실행 전에 보여 주기:** 복원할 버전(`safe-9`, 사본 지문 앞 12자리)과 바뀔 항목(현재 시험 정책과의 차이)을 보여 줍니다.
+
+그다음 `policy:restore`는 미리보기로 바뀔 파일·항목을 보여 주고 멈춥니다. 실제로 되돌리려면 `--apply --confirm <사본 지문 앞 12자리>`가 필요하고, **쓰기 직전에 사본을 한 번 더 읽어** 검증해 처음과 지문이 같을 때만 씁니다. 쓴 뒤에는 정책을 다시 읽어 사본과 같은지 확인하고, 다르면 모두 원래대로 돌려놓습니다. 바꾸는 곳은 정책 파일 세 곳뿐이고, 계산은 임시 폴더에서 하므로 실제 운영 정책은 건드리지 않습니다. 감사 기록은 덧붙이기만 합니다.
+
+메모 한 건 복원(`POST /api/restore`)도 같은 순서입니다. 비공개 사본을 읽어 ID·소유자·내용 해시를 검증하고, `"preview": true`로 실행 전에 버전(`backupSha256`)과 바뀔 항목을 보여 주며, 쓰기 직전에 사본을 다시 읽어 검증합니다. 사본이 없으면 `404`, 검증 실패면 `409`로 멈추고 쓰지 않습니다. DB 사본 전체는 `supabase/006_verify_notes_backup.sql`로 다시 읽어 검증합니다.
+
+| 확인 | 결과 | 상태 |
+|---|---|---|
+| `npm run backup:verify` | 1/4~4/4 통과, 복원할 버전 `safe-9`(지문 `2756f683cac9`), 변경 범위 없음, 아무것도 바꾸지 않음 | 실행함 (클라우드, 2026-10-14) |
+| 정책·지문을 함께 바꾼 사본 / 없는 사본으로 `backup:verify` | `source_mismatch` / `1/4 사본 파일이 없습니다`로 멈추고 종료 코드 1 | 실행함 (클라우드, 2026-10-14) |
+| 정책 복원 시험 12개 (절차 시험 2개 추가) | 미리보기는 사본을 두 번, 실행은 쓰기 직전까지 세 번 읽어 검증. 다시 읽기나 쓰기 직전 다시 읽기에서 사본이 다르면 멈추고 정책 파일 그대로 | 실행함 (클라우드, 2026-10-14) |
+| 전체 시험 126개 중 125개(알려진 실패 `package-starter` 1개), 복원 훈련 17/17 | 통과 | 실행함 (클라우드, 2026-10-14) |
+| 내 PC에서 `npm run backup:verify` | 학생 PC에서 실행한 뒤 기록 | 미실행 |
 
 ### 안전 정책 사본 검증: 원본 커밋을 다시 읽어 대조 (제작 1·2 보완)
 
@@ -72,7 +93,7 @@
 
 **대조와 범위:** 복구는 사본의 ID가 요청과 같고, 소유자가 서버가 확인한 로그인 사용자와 같고, 저장된 내용 해시(sha256, 제목 + 0x00 + 내용)가 사본 내용에서 다시 계산한 값과 같을 때만 합니다. 바꾸는 곳은 그 메모 한 행뿐입니다(있으면 내용을 되돌리고, 지워졌으면 같은 ID·소유자로 다시 만듭니다). 다른 메모, 사본 표, 서버 기록은 고치거나 지우지 않습니다. 되돌린 뒤 다시 읽어 ID·소유자·해시가 사본과 같은지 확인합니다.
 
-**다시 실행하는 방법:** `npm run backup:drill -- --no-write`(복원 훈련 17항목, 기록 없이 실행), `node --test test/restore-drill.test.mjs`(3개), `npm run test:restore`(17개, 미리 보기 시험 3개·사본 다시 읽기 시험 2개 포함), `npm run test:notes`(15개), `npm run test:r5`(14개, 10단계 자기 점검 시험 포함), `npm run policy:diff`(변경 범위 없음), `npm run bundle`(변경을 커밋한 뒤 학생 PC에서 실행).
+**다시 실행하는 방법:** `npm run backup:verify`(복원 전 사본 검증 절차, 바꾸는 것 없음), `npm run backup:drill -- --no-write`(복원 훈련 17항목, 기록 없이 실행), `node --test test/restore-drill.test.mjs`(3개), `npm run test:restore`(17개, 미리 보기 시험 3개·사본 다시 읽기 시험 2개 포함), `npm run test:notes`(15개), `npm run test:r5`(14개, 10단계 자기 점검 시험 포함), `npm run policy:diff`(변경 범위 없음), `npm run bundle`(변경을 커밋한 뒤 학생 PC에서 실행).
 
 | 확인한 것 | 결과 | 상태 |
 |---|---|---|

@@ -13,6 +13,7 @@
     "decider:test": "node scripts/decider-test.mjs",
     "detect:test": "node scripts/detect-test.mjs",
     "policy:diff": "node scripts/policy-diff.mjs",
+    "backup:verify": "node scripts/backup-verify.mjs",
     "policy:restore": "node scripts/policy-restore.mjs",
     "backup:drill": "node scripts/restore-drill.mjs",
     "fixture:7": "node scripts/fixture-7.mjs",

@@ -5,9 +5,12 @@ import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import { diffPolicy } from '../src/policy-diff.mjs';
 import { matchEol, planRestore, setAllowedRoutes } from '../src/policy-restore.mjs';
+import { verifyBeforeRestore } from './backup-verify.mjs';
 import { DEFAULT_SNAPSHOT, REPO_ROOT, currentPolicyOf, readVerifiedSnapshot } from './policy-diff.mjs';
 
 // 10단계 제작 2: 검증한 안전 정책 버전으로 시험 정책을 되돌립니다.
+// - 먼저 「복원 전 사본 검증 절차」(scripts/backup-verify.mjs: 사본 읽기 → 검증 → 다시 읽기 → 버전·바뀔 항목 보여 주기)를 거칩니다.
+//   통과하지 못하면 아무것도 하지 않고 멈춥니다. 실행할 때는 쓰기 직전에 사본을 한 번 더 읽어 검증하고, 지문이 다르면 쓰지 않습니다.
 // - 기본은 미리보기입니다. 바뀔 파일·항목을 먼저 보여 주고 아무것도 고치지 않습니다.
 // - 실제로 되돌리려면 --apply 와 --confirm <사본 지문 앞 12자리>를 함께 줘야 합니다(미리보기에 지문이 보입니다).
 // - 되돌리는 곳은 정책 파일뿐입니다. 다른 서비스 규칙, 감사 기록, 자료·DB, git 기록은 건드리지 않습니다.
@@ -21,24 +24,17 @@ export async function gitSource(base, commit, file) {
   return stdout;
 }
 
-const KIND_TEXT = { restore_add: '다시 생김', restore_remove: '없어짐', restore_change: '값이 바뀜' };
 const KEPT = '그대로 두는 것: 다른 서비스 규칙(XDR 등), 기존 감사 기록, README, 자료와 DB, git 기록';
 
-export async function run({ base = REPO_ROOT, file = DEFAULT_SNAPSHOT, expectSha256, apply = false, confirm, readSource, now = () => new Date() } = {}) {
-  const loaded = await readVerifiedSnapshot(file, expectSha256);
-  if (!loaded.ok) return { code: 1, lines: [loaded.line] };
-  const { snapshot } = loaded;
+export async function run({ base = REPO_ROOT, file = DEFAULT_SNAPSHOT, expectSha256, apply = false, confirm, readSource, readSnapshot = readVerifiedSnapshot, now = () => new Date() } = {}) {
+  // 1단계: 복원 전 사본 검증 절차. 통과하지 못하면 여기서 멈춘다.
+  const checked = await verifyBeforeRestore({ base, file, expectSha256, readSnapshot });
+  if (!checked.ok) return { code: 1, lines: checked.lines };
+  const { snapshot, diff } = checked;
   const source = readSource ?? ((commit, path) => gitSource(base, commit, path));
   const pin = snapshot.sha256.slice(0, 12);
-
-  const diff = diffPolicy(snapshot.policy, await currentPolicyOf(base));
   const targets = planRestore(diff);
-  const lines = [
-    `복원할 정책 버전: ${snapshot.version} (커밋 ${snapshot.source.commit.slice(0, 7)}, 사본 지문 ${pin})`,
-    '사본 검증: 통과 (모양·지문 일치, 원본 커밋을 다시 읽어 계산한 지문과 일치)',
-    diff.same ? '변경 범위: 없음 (현재 시험 정책이 사본과 같습니다)' : `변경 범위: ${diff.changes.length}건`,
-    ...diff.changes.map(change => `  - [${change.area}] ${change.item}: ${KIND_TEXT[change.kind]} (사본 ${change.safe ?? '없음'} / 현재 ${change.current ?? '없음'})`),
-  ];
+  const lines = [...checked.lines];
   if (diff.same) return { code: 0, lines: [...lines, '복원할 것이 없습니다. 아무것도 고치지 않았습니다.'] };
 
   lines.push('바뀔 파일·항목:');
@@ -57,7 +53,14 @@ export async function run({ base = REPO_ROOT, file = DEFAULT_SNAPSHOT, expectSha
     return { code: 1, lines: [...lines, `중단: --confirm 값이 사본 지문 앞 12자리(${pin})와 다릅니다. 아무것도 고치지 않았습니다.`] };
   }
 
-  // 실행: 원래 내용을 기억해 두고 쓴 뒤, 검증에 실패하면 모두 되돌립니다.
+  // 2단계: 쓰기 직전에 사본을 다시 읽어 같은 방법으로 검증한다. 검증 실패이거나 처음 검증한 사본과 지문이 다르면 쓰지 않는다.
+  const again = await readSnapshot(file, expectSha256);
+  if (!again.ok || again.snapshot.sha256 !== snapshot.sha256) {
+    return { code: 1, lines: [...lines, '중단: 쓰기 직전에 사본을 다시 읽어 검증했지만 처음 검증한 사본과 같지 않거나 검증에 실패했습니다. 아무것도 고치지 않았습니다.'] };
+  }
+  lines.push('쓰기 직전 사본 다시 읽기: 통과 (처음 검증한 사본과 지문 일치)');
+
+  // 3단계 실행: 원래 내용을 기억해 두고 쓴 뒤, 검증에 실패하면 모두 되돌립니다.
   const before = new Map();
   const abs = path => resolve(base, path);
   try {

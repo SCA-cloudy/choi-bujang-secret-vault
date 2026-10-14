@@ -209,3 +209,43 @@ test('사본의 원본 커밋을 다시 읽지 못하면 검증하지 못한 것
   assert.equal(real.ok, true); // 진짜 사본은 원본 커밋과 같다
   assert.deepEqual(await Promise.all(FILES.map(file => read(base, file))), before);
 });
+
+test('복원 전 사본 검증 절차: 미리보기는 사본을 두 번(검증·다시 읽기), 실행은 쓰기 직전까지 세 번 읽어 검증한다', async () => {
+  const { readVerifiedSnapshot } = await import('../scripts/policy-diff.mjs');
+  const base = await makeRoot();
+  await tamper(base);
+  let reads = 0;
+  const counting = async (file, expect) => { reads += 1; return readVerifiedSnapshot(file, expect); };
+  const preview = await run({ base, readSource: pristine, readSnapshot: counting });
+  assert.equal(preview.code, 0);
+  assert.equal(reads, 2);
+  const text = preview.lines.join('\n');
+  for (const step of ['1/4 사본 읽기: 통과', '2/4 사본 검증: 통과', '3/4 사본 다시 읽기: 통과', '4/4 실행 전에 보여 주기', '복원할 정책 버전: safe-9', '바뀔 파일·항목:']) {
+    assert.ok(text.includes(step), step);
+  }
+  reads = 0;
+  const done = await run({ base, apply: true, confirm: await snapshotPin(), readSource: pristine, readSnapshot: counting });
+  assert.equal(done.code, 0, done.lines.join('\n'));
+  assert.equal(reads, 3);
+  assert.ok(done.lines.includes('쓰기 직전 사본 다시 읽기: 통과 (처음 검증한 사본과 지문 일치)'));
+});
+
+test('복원 전 사본 검증 절차의 다시 읽기나 쓰기 직전 다시 읽기가 실패하면 아무것도 쓰지 않는다', async () => {
+  const { readVerifiedSnapshot } = await import('../scripts/policy-diff.mjs');
+  for (const failAt of [2, 3]) {
+    const base = await makeRoot();
+    await tamper(base);
+    const before = await Promise.all(FILES.map(file => read(base, file)));
+    let reads = 0;
+    const flaky = async (file, expect) => {
+      reads += 1;
+      const loaded = await readVerifiedSnapshot(file, expect);
+      if (reads !== failAt) return loaded;
+      return { ok: true, snapshot: { ...loaded.snapshot, sha256: 'f'.repeat(64) } }; // 다시 읽은 사본이 처음과 다름
+    };
+    const result = await run({ base, apply: true, confirm: await snapshotPin(), readSource: pristine, readSnapshot: flaky });
+    assert.equal(result.code, 1, `failAt ${failAt}`);
+    assert.match(result.lines.at(-1), /^중단:/, `failAt ${failAt}`);
+    assert.deepEqual(await Promise.all(FILES.map(file => read(base, file))), before, `failAt ${failAt}`); // 정책 파일 그대로
+  }
+});
