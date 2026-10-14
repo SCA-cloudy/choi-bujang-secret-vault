@@ -384,3 +384,30 @@ test('step 10 attack check keeps the step 9 records and adds one anonymous resto
     globalThis.fetch = originalFetch;
   }
 });
+
+test('step 11 attack check keeps 20 records, swaps one step 7 practice for the local device signature practice', async () => {
+  const originalFetch = globalThis.fetch;
+  try {
+    globalThis.fetch = async url => (String(url).endsWith('/data.json')
+      ? new Response('Not found', { status: 404 })
+      : new Response(JSON.stringify({ error: 'LOGIN_REQUIRED' }), { status: 401, headers: { 'content-type': 'application/json' } }));
+    const base = { ...config, originalApiUrl: 'https://example-project.supabase.co/rest/v1/notes' };
+    const ten = await runAttackChecks({ ...base, step: 10 });
+    assert.equal(ten.length, 20);
+    assert.ok(ten.some(item => item.attackId === 'decider_single_signal_allowed')); // 10단계 결과는 그대로
+    const results = await runAttackChecks({ ...base, step: 11 });
+    assert.equal(results.length, 20);
+    assert.ok(!results.some(item => item.attackId === 'decider_single_signal_allowed'));
+    const last = results.at(-1);
+    assert.equal(last.attackId, 'device_signature_tamper_denied');
+    assert.equal(last.observed, '기기 확인 함수에 넣은 가상 요청의 결과: 서명 없음 DEVICE_SIGNATURE_REQUIRED, 경로 변경 DEVICE_SIGNATURE_INVALID, 본문 변경 DEVICE_SIGNATURE_INVALID, 올바른 서명 allow');
+    assert.equal(new Set(results.map(item => item.attackId)).size, 20);
+    for (const item of results) {
+      assert.deepEqual(Object.keys(item).sort(), ['attackId', 'expected', 'observed']);
+      assert.ok(item.expected.length <= 300 && item.observed.length <= 300);
+      assert.ok(!/eyJ|BEGIN|sb_secret_/u.test(item.observed));
+    }
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});

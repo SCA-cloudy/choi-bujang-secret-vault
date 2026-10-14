@@ -50,7 +50,7 @@ async function anonymousApiResult(app, path, init = {}) {
 }
 
 export async function runAttackChecks(config) {
-  if (![1, 2, 3, 4, 5, 6, 7, 8, 9, 10].includes(config.step)) {
+  if (![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11].includes(config.step)) {
     throw new Error('이 단계의 공격 점검을 src/attack-check.mjs에 구현해 주세요.');
   }
   const app = checkedAppUrl(config);
@@ -219,6 +219,41 @@ export async function runAttackChecks(config) {
     results.push({ attackId: 'anonymous_restore_request',
       expected: '로그인 없이 복구를 요청하면 401 또는 403으로 거부 (없는 가짜 번호로 시험)',
       observed: seen(restore) });
+    if (config.step === 10) return results;
+
+    // 11단계: 서버의 기기 확인 함수(src/device-auth.mjs)를 가상 요청으로 직접 불러 본다. 이 컴퓨터에서 함수를 부른 연습이며
+    // 사이트로 보낸 요청도 심판의 판정도 아니다(배포 사이트의 승인 흐름과 괴물 세 마리 재현은 README에 따로 적는다).
+    // 이 연습용 기기 키는 이 함수 안에서만 만들고 버린다. 키·서명·사용자 번호는 기록하지 않는다.
+    // 제출 묶음은 직접 점검을 20개까지만 받으므로 7단계의 단일 신호 허용 점검 한 개를 빼고 이 한 개를 넣는다.
+    const { checkDevice, canonicalRequest, deviceIdOf } = await import('./device-auth.mjs');
+    const { createHash, webcrypto } = await import('node:crypto');
+    const pair = await webcrypto.subtle.generateKey({ name: 'ECDSA', namedCurve: 'P-256' }, false, ['sign', 'verify']);
+    const { kty, crv, x, y } = await webcrypto.subtle.exportKey('jwk', pair.publicKey);
+    const deviceId = deviceIdOf({ kty, crv, x, y });
+    const owner = 'device-practice-owner';
+    const store = { getDevice: async id => (id === deviceId ? { owner_id: owner, public_key: { kty, crv, x, y }, status: 'approved' } : null) };
+    const at = Date.UTC(2026, 9, 14, 0, 0, 0);
+    const sha = text => createHash('sha256').update(text, 'utf8').digest('hex');
+    const signed = async (method, path, body = '') => {
+      const message = canonicalRequest({ method, path, timestamp: at, bodySha256: sha(body) });
+      const signature = await webcrypto.subtle.sign({ name: 'ECDSA', hash: 'SHA-256' }, pair.privateKey, new TextEncoder().encode(message));
+      return { 'x-device-id': deviceId, 'x-device-time': String(at), 'x-device-signature': Buffer.from(signature).toString('base64url') };
+    };
+    const tryDeviceCheck = async request => {
+      const answer = await checkDevice(request, { userId: owner }, { store, now: () => at });
+      return answer.ok ? 'allow' : answer.error;
+    };
+    const noteA = `/api/notes/${missingId}`;
+    const noteB = '/api/notes/00000000-0000-4000-8000-000000000001';
+    const unsigned = await tryDeviceCheck({ method: 'GET', url: '/api/notes', headers: {} });
+    const moved = await tryDeviceCheck({ method: 'DELETE', url: noteB, headers: await signed('DELETE', noteA) });
+    const tampered = await tryDeviceCheck({ method: 'PUT', url: noteA, headers: await signed('PUT', noteA, JSON.stringify({ title: 't', body: 'signed' })), body: { title: 't', body: 'changed' } });
+    const normal = await tryDeviceCheck({ method: 'GET', url: '/api/notes', headers: await signed('GET', '/api/notes') });
+    const index = results.findIndex(item => item.attackId === 'decider_single_signal_allowed');
+    if (index >= 0) results.splice(index, 1);
+    results.push({ attackId: 'device_signature_tamper_denied',
+      expected: '승인된 기기라도 서명 없음은 DEVICE_SIGNATURE_REQUIRED, 서명 뒤 경로·본문 변경은 DEVICE_SIGNATURE_INVALID, 올바른 서명은 allow (기기 확인 함수를 직접 부른 연습)',
+      observed: `기기 확인 함수에 넣은 가상 요청의 결과: 서명 없음 ${unsigned}, 경로 변경 ${moved}, 본문 변경 ${tampered}, 올바른 서명 ${normal}` });
     return results;
   }
 

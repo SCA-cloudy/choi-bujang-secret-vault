@@ -20,7 +20,7 @@
 
 ## 11단계 현재 상태 (나만의 접속 앱을 완성합니다, 2026-10-14 저장점)
 
-`aleph.config.json`의 `step`을 11로 올렸습니다. 배포 주소, 로그인 발급자, 원본 API 주소, `judgeIssuer`, `restoreRoute`는 10단계와 같습니다. 허용 경로(`allowedRoutes`)는 메모 API 다섯 개 그대로이고, 새 기기 경로(`POST /api/device/request`, `GET /api/device/status`)는 10단계의 복구 경로처럼 넣지 않았습니다(넣으면 안전 정책 사본 `safe-9`과 달라져 복원 전 사본 검증이 정책 변경으로 판단함). 판정기(`src/decider.mjs`)는 바꾸지 않았고 `RULE_IDS`는 구현된 세 규칙(`device_registered`, `step_up_required`, `resource_zone`) 그대로입니다. 자기 점검(`src/attack-check.mjs`)은 제출 묶음이 받는 최대 20개를 이미 채워서 바꾸지 않았습니다(로그인 없는 요청은 기기 확인보다 앞의 로그인 확인에서 `401`로 막힘).
+`aleph.config.json`의 `step`을 11로 올렸습니다. 배포 주소, 로그인 발급자, 원본 API 주소, `judgeIssuer`, `restoreRoute`는 10단계와 같습니다. 허용 경로(`allowedRoutes`)는 메모 API 다섯 개 그대로이고, 새 기기 경로(`POST /api/device/request`, `GET /api/device/status`)는 10단계의 복구 경로처럼 넣지 않았습니다(넣으면 안전 정책 사본 `safe-9`과 달라져 복원 전 사본 검증이 정책 변경으로 판단함). 판정기(`src/decider.mjs`)는 바꾸지 않았고 `RULE_IDS`는 구현된 세 규칙(`device_registered`, `step_up_required`, `resource_zone`) 그대로입니다. 자기 점검(`src/attack-check.mjs`)은 11단계를 받도록 고쳤습니다(처음 저장점에서 `npm run bundle`이 "이 단계의 공격 점검을 구현해 주세요"로 멈춰 첫 오류만 고침). 제출 묶음이 받는 최대 20개를 지키려고 11단계부터만 7단계의 단일 신호 허용 점검(`decider_single_signal_allowed`) 한 개를 빼고, 서버의 기기 확인 함수를 가상 요청으로 직접 부른 결과 한 개(`device_signature_tamper_denied`: 서명 없음 `DEVICE_SIGNATURE_REQUIRED`, 서명 뒤 경로 변경·본문 변경 `DEVICE_SIGNATURE_INVALID`, 올바른 서명 `allow`)를 넣었습니다. 이 한 개는 이 컴퓨터에서 함수를 부른 연습이며 사이트로 보낸 요청도 심판의 판정도 아닙니다. 10단계 이하의 점검 결과는 그대로입니다.
 
 **지금 작동하는 기능(11단계):** 설치형 웹앱 설정(`public/manifest.webmanifest`)·오프라인 안내(`public/sw.js`, 자료를 저장하지 않음)·기기 승인 상태 표시, 기기 승인 흐름(로그인 → 꺼낼 수 없는 기기 키를 메모리에 만듦 → 「이 기기 승인 요청」으로 대기 등록 → 학생이 SQL Editor에서 승인 → 「승인 상태 다시 확인」 → 자료실 열림), 메모·복구 요청마다 기기 서명(방식·경로·시각·본문 해시)을 서버가 확인. 로그인 출입증과 기기 키는 브라우저 저장소에 넣지 않습니다(새로고침하면 다시 로그인·승인). 1~10단계 기능은 그대로입니다.
 
