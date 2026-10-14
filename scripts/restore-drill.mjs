@@ -128,8 +128,10 @@ async function call(fn, { method = 'POST', who = USER_B, body, query } = {}) {
 async function notesDrill(checks) {
   const store = memoryStore();
   const verifyAuthorization = async header => ([USER_A, USER_B].includes(header?.slice(7)) ? { kind: 'student', userId: header.slice(7) } : null);
-  const notes = createNotesHandlers({ verifyAuthorization, store });
-  const restore = createRestoreHandler({ verifyAuthorization, store });
+  // 복원 훈련은 사본 복원만 본다. 11단계 기기 서명 확인은 test/device-auth.test.mjs가 따로 본다.
+  const deviceCheck = async () => ({ ok: true });
+  const notes = createNotesHandlers({ verifyAuthorization, store, deviceCheck });
+  const restore = createRestoreHandler({ verifyAuthorization, store, deviceCheck });
   const original = { title: '훈련용 가상 제목', body: '훈련용 가상 내용' };
   const made = await call(notes.collection, { body: { id: NOTE_B, ...original } });
   await call(notes.collection, { who: USER_A, body: { id: NOTE_A, title: '다른 메모', body: '다른 내용' } });

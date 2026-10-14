@@ -53,6 +53,7 @@ function build(seed) {
   const handlers = createNotesHandlers({
     verifyAuthorization: async authorization => TOKENS[authorization] ?? null,
     store,
+    deviceCheck: async () => ({ ok: true }), // 11단계 기기 서명 확인은 test/device-auth.test.mjs가 본다
   });
   return { handlers, store };
 }
@@ -229,7 +230,7 @@ test('허용하지 않는 방식은 로그인 검사 전에 405이다', async ()
 test('저장소 오류는 500이고 오류 내용을 응답에 담지 않는다', async () => {
   const store = memoryStore();
   store.list = async () => { throw new Error('db_failed:SECRET-DETAIL'); };
-  const handlers = createNotesHandlers({ verifyAuthorization: async () => ({ kind: 'student', userId: A }), store });
+  const handlers = createNotesHandlers({ verifyAuthorization: async () => ({ kind: 'student', userId: A }), store, deviceCheck: async () => ({ ok: true }) });
   const original = console.error;
   console.error = () => {};
   try {
@@ -263,7 +264,7 @@ function captureErrors(fn) {
 test('저장소가 남의 메모를 돌려줘도 목록·조회에 나오지 않고, 수정·삭제는 저장소에 닿지 않는다', async () => {
   const seed = [{ id: ID1, owner_id: A, title: 'A의 메모', content: '비공개 본문' }];
   const store = leakyStore(seed);
-  const handlers = createNotesHandlers({ verifyAuthorization: async authorization => TOKENS[authorization] ?? null, store });
+  const handlers = createNotesHandlers({ verifyAuthorization: async authorization => TOKENS[authorization] ?? null, store, deviceCheck: async () => ({ ok: true }) });
   const b = { token: 'Bearer b.b.b', query: { id: ID1 } };
   const { result, lines } = await captureErrors(async () => ({
     list: await call(handlers.collection, { token: 'Bearer b.b.b' }),

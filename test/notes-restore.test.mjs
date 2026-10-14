@@ -52,7 +52,8 @@ function memoryStore() {
 
 function build(store = memoryStore()) {
   const verifyAuthorization = async authorization => TOKENS[authorization] ?? null;
-  return { store, notes: createNotesHandlers({ verifyAuthorization, store }), restore: createRestoreHandler({ verifyAuthorization, store }) };
+  // 11단계 기기 서명 확인은 test/device-auth.test.mjs가 실제 서명으로 본다. 여기서는 메모·복구 논리만 본다.
+  return { store, notes: createNotesHandlers({ verifyAuthorization, store, deviceCheck: async () => ({ ok: true }) }), restore: createRestoreHandler({ verifyAuthorization, store, deviceCheck: async () => ({ ok: true }) }) };
 }
 async function call(fn, { method = 'POST', token = 'Bearer b.b.b', body, query } = {}) {
   const response = fakeResponse();
