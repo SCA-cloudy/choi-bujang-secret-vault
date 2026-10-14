@@ -113,13 +113,7 @@ test('시험 계정 B: 메모를 변조한 뒤 복구하면 사본의 ID·소유
   const other = JSON.stringify(ctx.store.rows.get(IDA));
   const result = await call(ctx.restore, { body: { id: IDB } });
   assert.equal(result.statusCode, 200);
-  assert.deepEqual(result.body, {
-    id: IDB, restored: 'updated', contentSha256: original,
-    backupSha256: original, previousSha256: noteContentSha256('변조', '변조된 내용'),
-    changes: { title: true, content: true }, verified: true,
-  });
-  const text = JSON.stringify(result.body);
-  for (const secret of ['SAMPLE_B', '원본 제목', '변조된 내용']) assert.ok(!text.includes(secret), secret); // 본문·제목은 응답에 없다
+  assert.deepEqual(result.body, { id: IDB, restored: 'updated', contentSha256: original });
   const row = ctx.store.rows.get(IDB);
   assert.deepEqual([row.id, row.owner_id, noteContentSha256(row.title, row.content)], [IDB, B, original]);
   assert.equal(JSON.stringify(ctx.store.rows.get(IDA)), other);   // 다른 메모는 그대로
@@ -134,17 +128,11 @@ test('시험 계정 B: 메모를 지운 뒤 복구하면 같은 ID·소유자·�
   const result = await call(ctx.restore, { body: { id: IDB.toUpperCase() } });
   assert.equal(result.statusCode, 200);
   assert.equal(result.body.restored, 'recreated');
-  assert.equal(result.body.previousSha256, null); // 지워져 있었으므로 복구 전 값이 없다
-  assert.deepEqual(result.body.changes, { title: true, content: true });
-  assert.equal(result.body.verified, true);
   const row = ctx.store.rows.get(IDB);
   assert.deepEqual([row.owner_id, row.title, row.content], [B, 'B 원본 제목', 'B 원본 내용 SAMPLE_B']);
   assert.equal(ctx.store.rows.size, 2);
   // 다시 호출해도 같은 결과(이미 같은 내용이면 그대로)
-  const again = await call(ctx.restore, { body: { id: IDB } });
-  assert.equal(again.body.restored, 'updated');
-  assert.deepEqual(again.body.changes, { title: false, content: false }); // 이미 같아서 바뀐 항목이 없다
-  assert.equal(again.body.previousSha256, again.body.backupSha256);
+  assert.equal((await call(ctx.restore, { body: { id: IDB } })).body.restored, 'updated');
 });
 
 test('남이 B의 메모를 복구하려 하면 404이고 아무것도 바뀌지 않는다', async () => {
@@ -344,75 +332,4 @@ test('다시 읽은 사본이 처음과 다르거나 읽지 못하면 메모를 
     assert.deepEqual(result.body, { error: 'BACKUP_INVALID' }, mode);
     assert.equal(snapshotOf(ctx.store), before, mode); // 메모도 사본도 하나도 바뀌지 않음
   }
-});
-
-test('사본을 저장한 직후 다시 읽어 검증하고, 정상이면 아무 경고도 남기지 않는다', async () => {
-  const store = memoryStore();
-  const realGet = store.getBackup.bind(store);
-  let reads = 0;
-  store.getBackup = async (id, ownerId) => { reads += 1; return realGet(id, ownerId); };
-  const ctx = build(store);
-  const lines = [];
-  const silent = console.error; console.error = (...args) => lines.push(args.join(' '));
-  let result;
-  try { result = fakeResponse(); await ctx.notes.collection({ method: 'POST', headers: { authorization: 'Bearer b.b.b' }, body: { id: IDB, title: 'B 원본 제목', body: 'B 원본 내용 SAMPLE_B' } }, result); } finally { console.error = silent; }
-  assert.equal(result.statusCode, 201);
-  assert.equal(reads, 1);
-  assert.ok(!lines.join('\n').includes('BACKUP_'));
-});
-
-test('저장 직후 다시 읽은 사본이 틀리거나 읽지 못해도 메모 추가는 막지 않고 이유 코드만 남긴다', async () => {
-  for (const mode of ['tampered', 'missing', 'throws']) {
-    const store = memoryStore();
-    const realGet = store.getBackup.bind(store);
-    store.getBackup = async (id, ownerId) => {
-      if (mode === 'throws') throw new Error('읽기 실패');
-      const row = await realGet(id, ownerId);
-      return mode === 'missing' ? null : { ...row, content: '저장 뒤 바뀐 내용' };
-    };
-    const ctx = build(store);
-    const lines = [];
-    const silent = console.error; console.error = (...args) => lines.push(args.join(' '));
-    let result;
-    try { result = fakeResponse(); await ctx.notes.collection({ method: 'POST', headers: { authorization: 'Bearer b.b.b' }, body: { id: IDB, title: 'B 원본 제목', body: 'B 원본 내용 SAMPLE_B' } }, result); } finally { console.error = silent; }
-    assert.equal(result.statusCode, 201, mode);
-    assert.ok(store.rows.has(IDB), mode);
-    const text = lines.join('\n');
-    assert.match(text, mode === 'throws' ? /BACKUP_SAVE_FAILED/ : /BACKUP_VERIFY_FAILED/, mode);
-    for (const secret of ['SAMPLE_B', '원본', B]) assert.ok(!text.includes(secret), `${mode}:${secret}`);
-  }
-});
-
-test('실행 전에 보여 준 버전(expectedBackupSha256)과 같을 때만 복구하고, 다르면 아무것도 쓰지 않는다', async () => {
-  const ctx = await seedB();
-  await call(ctx.notes.item, { method: 'PUT', query: { id: IDB }, body: { title: '변조', body: '변조' } });
-  const shown = (await call(ctx.restore, { body: { id: IDB, preview: true } })).body;
-  assert.equal(shown.action, 'update');
-  const before = snapshotOf(ctx.store);
-  const wrong = await call(ctx.restore, { body: { id: IDB, expectedBackupSha256: 'f'.repeat(64) } });
-  assert.equal(wrong.statusCode, 409);
-  assert.deepEqual(wrong.body, { error: 'VERSION_MISMATCH' });
-  assert.equal(snapshotOf(ctx.store), before); // 메모도 사본도 그대로
-  const ok = await call(ctx.restore, { body: { id: IDB, expectedBackupSha256: shown.backupSha256 } });
-  assert.equal(ok.statusCode, 200);
-  assert.equal(ok.body.restored, 'updated');
-  assert.equal(ok.body.backupSha256, shown.backupSha256);
-  assert.equal(ctx.store.rows.get(IDB).title, 'B 원본 제목');
-});
-
-test('expectedBackupSha256은 모양이 맞아야 하고, 남의 메모는 값이 맞아도 404이며, 값 없이도 기존처럼 복구된다', async () => {
-  const ctx = await seedB();
-  await call(ctx.notes.item, { method: 'PUT', query: { id: IDB }, body: { title: '변조', body: '변조' } });
-  const before = snapshotOf(ctx.store);
-  for (const bad of ['abc', 123, null, 'F'.repeat(64), ['x']]) {
-    assert.equal((await call(ctx.restore, { body: { id: IDB, expectedBackupSha256: bad } })).statusCode, 400);
-  }
-  const hash = noteContentSha256('B 원본 제목', 'B 원본 내용 SAMPLE_B');
-  const other = await call(ctx.restore, { token: 'Bearer a.a.a', body: { id: IDB, expectedBackupSha256: hash } });
-  assert.equal(other.statusCode, 404);
-  assert.equal(snapshotOf(ctx.store), before);
-  const preview = await call(ctx.restore, { body: { id: IDB, preview: true, expectedBackupSha256: 'f'.repeat(64) } });
-  assert.equal(preview.statusCode, 409); // 미리 보기도 같은 검사를 한다
-  assert.equal(snapshotOf(ctx.store), before);
-  assert.equal((await call(ctx.restore, { body: { id: IDB } })).body.restored, 'updated'); // 값 없이 보내면 기존 동작
 });

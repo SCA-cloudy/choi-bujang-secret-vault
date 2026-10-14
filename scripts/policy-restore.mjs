@@ -10,7 +10,6 @@ import { DEFAULT_SNAPSHOT, REPO_ROOT, currentPolicyOf, readVerifiedSnapshot } fr
 // 10단계 제작 2: 검증한 안전 정책 버전으로 시험 정책을 되돌립니다.
 // - 기본은 미리보기입니다. 바뀔 파일·항목을 먼저 보여 주고 아무것도 고치지 않습니다.
 // - 실제로 되돌리려면 --apply 와 --confirm <사본 지문 앞 12자리>를 함께 줘야 합니다(미리보기에 지문이 보입니다).
-// - 쓰기 직전에 사본을 한 번 더 읽어 다시 검증합니다. 처음 검증한 사본과 지문이 다르거나 검증에 실패하면 아무것도 쓰지 않습니다.
 // - 되돌리는 곳은 정책 파일뿐입니다. 다른 서비스 규칙, 감사 기록, 자료·DB, git 기록은 건드리지 않습니다.
 // - 되돌린 뒤 정책 지문이 사본과 같지 않으면 모든 파일을 원래대로 돌려놓고 중단합니다.
 // - 되돌린 일은 policy/restore-audit.log 에 한 줄씩 덧붙입니다(시각·버전·파일 이름만, 내용은 담지 않습니다).
@@ -25,8 +24,8 @@ export async function gitSource(base, commit, file) {
 const KIND_TEXT = { restore_add: '다시 생김', restore_remove: '없어짐', restore_change: '값이 바뀜' };
 const KEPT = '그대로 두는 것: 다른 서비스 규칙(XDR 등), 기존 감사 기록, README, 자료와 DB, git 기록';
 
-export async function run({ base = REPO_ROOT, file = DEFAULT_SNAPSHOT, expectSha256, apply = false, confirm, readSource, readSnapshot = readVerifiedSnapshot, now = () => new Date() } = {}) {
-  const loaded = await readSnapshot(file, expectSha256);
+export async function run({ base = REPO_ROOT, file = DEFAULT_SNAPSHOT, expectSha256, apply = false, confirm, readSource, now = () => new Date() } = {}) {
+  const loaded = await readVerifiedSnapshot(file, expectSha256);
   if (!loaded.ok) return { code: 1, lines: [loaded.line] };
   const { snapshot } = loaded;
   const source = readSource ?? ((commit, path) => gitSource(base, commit, path));
@@ -57,13 +56,6 @@ export async function run({ base = REPO_ROOT, file = DEFAULT_SNAPSHOT, expectSha
   if (confirm !== pin) {
     return { code: 1, lines: [...lines, `중단: --confirm 값이 사본 지문 앞 12자리(${pin})와 다릅니다. 아무것도 고치지 않았습니다.`] };
   }
-
-  // 실행 직전에 사본을 다시 읽어 같은 방법으로 검증합니다. 처음 검증한 사본과 지문이 다르거나 검증에 실패하면 아무것도 쓰지 않습니다.
-  const again = await readSnapshot(file, expectSha256);
-  if (!again.ok || again.snapshot.sha256 !== snapshot.sha256) {
-    return { code: 1, lines: [...lines, '중단: 실행 직전에 사본을 다시 읽어 검증했지만 처음 검증한 사본과 같지 않습니다. 아무것도 고치지 않았습니다.'] };
-  }
-  lines.push('실행 직전 사본 다시 읽기: 통과 (처음 검증한 사본과 지문 일치)');
 
   // 실행: 원래 내용을 기억해 두고 쓴 뒤, 검증에 실패하면 모두 되돌립니다.
   const before = new Map();
