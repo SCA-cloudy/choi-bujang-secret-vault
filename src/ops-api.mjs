@@ -20,10 +20,6 @@ import { fixtureRequests } from '../scripts/fixture-7.mjs';
 export const mask = value => (typeof value === 'string' && value.length > 8 ? `${value.slice(0, 4)}…${value.slice(-4)}` : '…');
 const log = text => console.error(`ops: ${text}`);
 
-function readJsonFile(relative) {
-  return JSON.parse(readFileSync(new URL(relative, import.meta.url), 'utf8'));
-}
-
 async function deciderSummary() {
   const { normal, suspicious } = fixtureRequests();
   const probes = [
@@ -72,12 +68,12 @@ async function revocationSummary(store, ownerId) {
 async function recoverySummary(store, ownerId) {
   let policy;
   try {
-    const snapshot = readJsonFile('../policy/safe-policy.json');
+    const snapshot = JSON.parse(readFileSync(new URL('../policy/safe-policy.json', import.meta.url), 'utf8'));
     policy = { source: 'live_file', version: snapshot.version, sha256Prefix: String(snapshot.sha256).slice(0, 12), sourceCommit: String(snapshot.source?.commit ?? '').slice(0, 7) };
   } catch { policy = { source: 'unavailable', reason: 'POLICY_SNAPSHOT_UNREADABLE' }; }
   let drill;
   try {
-    const record = readJsonFile('../policy/restore-drill.json');
+    const record = JSON.parse(readFileSync(new URL('../policy/restore-drill.json', import.meta.url), 'utf8'));
     const last = record.runs.at(-1);
     drill = last
       ? { source: 'live_file', runs: record.runs.length, lastAt: last.at, lastOk: last.ok, lastPassed: last.passed, lastTotal: last.total }
