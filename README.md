@@ -36,6 +36,15 @@
 | 로컬 브라우저로 화면 열기 | 페이지 오류 0, manifest 읽힘(`BYTE BACK 내 자료실`), 오프라인 안내 등록됨, 승인 상태 「확인 전」, 열린 방식 「브라우저」 | 실행함 (클라우드의 Chromium, 2026-10-14) |
 | 배포 사이트에서 새 화면과 기존 보호 요청의 정상·거부 결과 (배포 `8aa70aa`) | 첫 화면에 「이 기기 승인 상태: 확인 전」과 "설치해도 기기 확인이 끝난 것은 아닙니다" 표시, 열린 방식 「브라우저」. 콘솔 9줄 모두 `OK`: manifest `200`·`standalone`, 오프라인 안내 등록됨, 로그인 없이 목록·복구 `401`, B의 목록 `200`·추가 `201`·읽기 `200`·삭제 `200`·지운 뒤 읽기 `404` | 실행함 (시크릿 창·콘솔, 2026-10-14) |
 
+### 제작 2 (진행 중): 기기 승인
+
+**1단계 기기 표:** `supabase/007_devices.sql`로 `public.devices`(기기 번호 16자리, 주인, 공개 키, 이름표, 상태 `pending`/`approved`/`revoked`, 요청·승인 시각)를 만들었습니다. 개인키는 저장하지 않습니다. 브라우저 역할에는 권한이 없고, 서버(`service_role`)는 읽기와 승인 대기 등록만 할 수 있어 서버 키로도 기기를 승인할 수 없습니다. 승인은 학생이 SQL Editor에서 직접 합니다.
+
+| 확인 | 결과 | 상태 |
+|---|---|---|
+| `007_devices.sql` 실행 | `Success. No rows returned` | 실행함 (SQL Editor, 2026-10-14) |
+| `public.devices` 권한 | `anon`·`authenticated` `(없음)`, `service_role` `INSERT, SELECT` | 실행함 (SQL Editor, 2026-10-14) |
+
 ## 10단계 현재 상태 (백업에서 자료실을 되살립니다, 2026-10-14 저장점)
 
 `aleph.config.json`의 `step`을 10으로 올렸습니다. 허용 경로(`allowedRoutes` 다섯 개), 로그인 발급자, 원본 API 주소, `judgeIssuer`는 9단계와 같고, 복구 경로는 `restoreRoute`에 `POST /api/restore`로 적었습니다. `RULE_IDS`는 판정기의 구현된 규칙 세 개(`device_registered`, `step_up_required`, `resource_zone`) 그대로이며, 정책 되돌리기·복구는 판정기 규칙이 아니라 `RULE_IDS`에 넣지 않았습니다. 자기 점검 `src/attack-check.mjs`는 10단계에서 9단계의 기록 열아홉 개를 그대로 남기고, 로그인 없이 복구 경로를 부른 결과 한 개(`anonymous_restore_request`, 없는 가짜 번호만 사용)를 더해 모두 스무 개를 기록합니다. 제출 묶음이 받는 직접 점검의 최대 개수가 스무 개라서 10단계에서는 이 한 개만 더했습니다. 이 한 개는 사이트로 실제로 보낸 요청의 결과이며 심판의 판정이 아닙니다.
