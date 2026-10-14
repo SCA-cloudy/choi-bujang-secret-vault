@@ -78,10 +78,10 @@ test('작전실 요약: 네 칸의 값과 출처, 가린 기록이 서로 맞고
   const body = result.body;
   assert.equal(body.schema, 'aleph.ops.v1');
   assert.match(body.requestId, /^[0-9a-f-]{36}$/u);
-  // 판정기: 지금 실행한 가상 요청 3건
+  // 판정기: 지금 실행한 가상 요청 4건
   assert.equal(body.decider.source, 'live_virtual');
   assert.deepEqual(body.decider.ruleIds, ['device_registered', 'step_up_required', 'resource_zone']);
-  assert.deepEqual(body.decider.probes.map(p => [p.expected, p.decision]), [['allow', 'allow'], ['deny', 'deny'], ['step_up', 'step_up']]);
+  assert.deepEqual(body.decider.probes.map(p => [p.expected, p.decision]), [['allow', 'allow'], ['deny', 'deny'], ['step_up', 'step_up'], ['deny', 'deny']]);
   // 탐지: 가상 사건은 실행, 실제 접속 사건은 미실행
   assert.equal(body.detection.source, 'live_virtual');
   assert.deepEqual(body.detection.probes.map(p => [p.count, p.action, p.reasonCode]), [[30, 'observe', null], [121, 'propose_revocation', 'burst_read']]);

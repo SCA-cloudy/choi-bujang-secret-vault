@@ -26,6 +26,7 @@ async function deciderSummary() {
     { name: '등록 기기의 평소 읽기', request: normal, expected: 'allow' },
     { name: '미등록 기기의 읽기', request: { ...normal, requestId: randomUUID(), deviceRegistered: false }, expected: 'deny' },
     { name: '복합 이상 접속(재확인 전)', request: suspicious, expected: 'step_up' },
+    { name: '구역 밖 동작: 메모 삭제', request: { ...normal, requestId: randomUUID(), method: 'DELETE', route: 'DELETE /notes/:id', path: '/notes/demo' }, expected: 'deny' },
   ];
   const results = [];
   for (const probe of probes) {

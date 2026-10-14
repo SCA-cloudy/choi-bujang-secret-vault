@@ -56,6 +56,19 @@
     .ops .meta { font-size: 13px; color: #9fb4cc; margin-top: 10px; word-break: break-all; }
     .ops button { padding: 9px 13px; border: 0; border-radius: 10px; background: #5fa8d3; color: #06222a; font-size: 15px; font-weight: 700; cursor: pointer; }
     .ops button:disabled { opacity: .6; cursor: wait; }
+    .ops .live { margin-top: 18px; padding-top: 14px; border-top: 1px solid #36506a; }
+    .ops .live h3 { margin: 0 0 6px; font-size: 16px; }
+    .ops .live input { width: 100%; box-sizing: border-box; padding: 9px 11px; margin: 6px 0 10px; border: 1px solid #51667c; border-radius: 10px; background: #0d1623; color: #ecf4ff; font-size: 14px; font-family: inherit; }
+    .ops .live .row { display: flex; gap: 8px; flex-wrap: wrap; }
+    .ops .live .secondary { background: #2c4259; color: #ecf4ff; }
+    .ops .tablewrap { overflow-x: auto; margin-top: 12px; }
+    .ops table { border-collapse: collapse; font-size: 12px; min-width: 760px; }
+    .ops th, .ops td { border: 1px solid #36506a; padding: 5px 7px; text-align: left; vertical-align: top; word-break: break-word; }
+    .ops th { background: #162b40; }
+    .ops td.ok { color: #8ff0c2; font-weight: 700; }
+    .ops td.bad { color: #ffb4c0; font-weight: 700; }
+    .ops td.skip { color: #ffe08a; font-weight: 700; }
+    .ops textarea { width: 100%; box-sizing: border-box; margin-top: 10px; min-height: 160px; padding: 9px 11px; border: 1px solid #51667c; border-radius: 10px; background: #0d1623; color: #ecf4ff; font-size: 12px; font-family: monospace; }
     [hidden] { display: none !important; }
   </style>
 </head>
@@ -105,6 +118,21 @@
       <p class="note">화면 문구는 통과 근거가 아닙니다. 아래 값은 서버(<code>/api/ops</code>)가 이번 요청에서 실제로 확인한 응답 그대로이며, 「실측」과 「미실행」을 나눠 표시합니다. 메모 제목·본문은 보여 주지 않고, 기기·메모 번호는 가립니다.</p>
       <button id="ops-refresh" type="button">작전실 새로고침</button>
       <div class="grid" id="ops-grid" aria-live="polite"></div>
+      <div class="live" id="live">
+        <h3>실측 요청 표 (1~12단계)</h3>
+        <p class="note">아래 버튼을 누르면 이 화면이 <strong style="display:inline;font-size:inherit">배포 사이트에 실제 요청</strong>을 차례로 보내고, 기대 결과와 서버가 돌려준 결과를 한 표로 만듭니다. 임시 메모 1건을 만들었다가 지웁니다(비공개 사본 1줄은 남습니다). 화면에서 보낼 수 없는 시험과 운영 41종 공격 시험은 「미실행」으로 남기며, 이 표의 「일치」는 운영 시험의 통과가 아닙니다.</p>
+        <label for="live-a-id" class="note">다른 계정(A)의 메모 번호(선택, 비우면 그 줄은 미실행)</label>
+        <input id="live-a-id" autocomplete="off" spellcheck="false" placeholder="예: 8d63….">
+        <div class="row">
+          <button id="live-run" type="button">실측 요청 표 만들기</button>
+          <button id="live-copy" class="secondary" type="button" hidden>표 복사</button>
+        </div>
+        <p class="meta" id="live-summary"></p>
+        <div class="tablewrap" id="live-wrap" hidden>
+          <table id="live-table"><thead><tr><th>단계</th><th>구분</th><th>요청</th><th>기대</th><th>실제</th><th>결과</th><th>요청 ID</th><th>확인 시각</th></tr></thead><tbody id="live-body"></tbody></table>
+        </div>
+        <textarea id="live-markdown" readonly hidden aria-label="복사할 표"></textarea>
+      </div>
       <p class="meta" id="ops-meta"></p>
       <p class="error" id="ops-error" role="alert"></p>
     </section>
@@ -144,6 +172,13 @@
     const opsMeta = document.querySelector('#ops-meta');
     const opsError = document.querySelector('#ops-error');
     const opsRefresh = document.querySelector('#ops-refresh');
+    const liveRun = document.querySelector('#live-run');
+    const liveCopy = document.querySelector('#live-copy');
+    const liveBody = document.querySelector('#live-body');
+    const liveWrap = document.querySelector('#live-wrap');
+    const liveSummary = document.querySelector('#live-summary');
+    const liveMarkdown = document.querySelector('#live-markdown');
+    const liveAId = document.querySelector('#live-a-id');
     let session = null;      // 메모리에만 둔다
     let device = null;       // { privateKey(꺼낼 수 없음), publicKey(JWK), deviceId } 메모리에만 둔다
     let deviceState = 'none'; // none(키 없음) | unregistered | pending | approved
@@ -216,11 +251,12 @@
     }
 
     // 서명할 글자열은 서버(src/device-auth.mjs)와 같다: 버전, 방식, 경로, 시각(ms), 본문 sha256.
-    async function deviceHeaders(method, path, bodyText) {
-      const time = String(Date.now());
+    // dev·at은 12단계 실측 요청 표에서 일부러 틀린 서명(등록 안 된 키, 오래된 시각)을 만들 때만 쓴다.
+    async function deviceHeaders(method, path, bodyText, { dev = device, at = Date.now() } = {}) {
+      const time = String(at);
       const message = [SIGNATURE_VERSION, method, path, time, await sha256Hex(bodyText)].join('\n');
-      const signature = await crypto.subtle.sign({ name: 'ECDSA', hash: 'SHA-256' }, device.privateKey, new TextEncoder().encode(message));
-      return { 'X-Device-Id': device.deviceId, 'X-Device-Time': time, 'X-Device-Signature': b64url(signature) };
+      const signature = await crypto.subtle.sign({ name: 'ECDSA', hash: 'SHA-256' }, dev.privateKey, new TextEncoder().encode(message));
+      return { 'X-Device-Id': dev.deviceId, 'X-Device-Time': time, 'X-Device-Signature': b64url(signature) };
     }
 
     // 로그인 출입증과 기기 서명을 함께 붙여 보낸다. 둘 중 하나라도 없으면 요청하지 않는다.
@@ -270,7 +306,7 @@
               : '확인 전: 이 기기는 아직 서버의 승인 확인을 받지 않았습니다.';
       editor.hidden = !signedIn || deviceState !== 'approved';
       opsSection.hidden = !signedIn || deviceState !== 'approved';
-      if (opsSection.hidden) { opsGrid.replaceChildren(); opsMeta.textContent = ''; opsError.textContent = ''; }
+      if (opsSection.hidden) { opsGrid.replaceChildren(); opsMeta.textContent = ''; opsError.textContent = ''; clearLive(); }
     }
 
     // ---------- 12단계 제작 1: 탈환 작전실 ----------
@@ -321,6 +357,173 @@
       else { opsGrid.replaceChildren(); opsMeta.textContent = ''; opsError.textContent = `작전실 요약을 받지 못했습니다(HTTP ${result.status}). 이 화면에는 받지 못한 값을 지어내 보여 주지 않습니다.`; }
     }
     opsRefresh.addEventListener('click', loadOps);
+
+    // ---------- 12단계 제작 2: 실측 요청 표 ----------
+    // 이 화면이 배포 사이트로 실제 보낸 요청의 결과만 표에 넣는다. 요청 ID는 응답 헤더 x-vercel-id, 확인 시각은 응답 헤더 Date 그대로이며,
+    // 없으면 「없음」으로 둔다. 보낼 수 없는 시험은 「미실행」과 이유를 적는다. 메모 제목·본문과 전체 번호는 표에 넣지 않는다.
+    const LIVE_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iu;
+    let liveRows = [];
+    let liveRunning = false;
+    function clearLive() {
+      liveRows = [];
+      liveBody.replaceChildren();
+      liveWrap.hidden = true;
+      liveCopy.hidden = true;
+      liveMarkdown.hidden = true;
+      liveMarkdown.value = '';
+      liveSummary.textContent = '';
+    }
+
+    // 요청 한 건. login=false면 출입증을 붙이지 않고, sign='none'이면 기기 서명을 붙이지 않는다.
+    // signPath·signBody·signAt·signDevice는 서명을 일부러 틀리게 만들 때만 쓴다.
+    async function liveCall({ method, path, payload, login = true, sign = 'valid', signPath, signBody, signAt, signDevice }) {
+      const bodyText = payload === undefined ? '' : JSON.stringify(payload);
+      const headers = {};
+      try {
+        if (login) {
+          if (session.expiresAt * 1000 - Date.now() < 60000) await refreshSession();
+          headers.Authorization = `Bearer ${session.accessToken}`;
+        }
+        if (sign !== 'none') Object.assign(headers, await deviceHeaders(method, signPath ?? path, signBody ?? bodyText, { dev: signDevice ?? device, at: signAt }));
+        const options = { method, cache: 'no-store', headers };
+        if (payload !== undefined) { headers['Content-Type'] = 'application/json'; options.body = bodyText; }
+        const response = await fetch(path, options);
+        const data = await response.json().catch(() => null);
+        return { status: response.status, error: typeof data?.error === 'string' ? data.error : null, data,
+          requestId: response.headers.get('x-vercel-id') || '없음', at: response.headers.get('date') || '없음' };
+      } catch {
+        return { status: 0, error: 'NETWORK_ERROR', data: null, requestId: '없음', at: '없음' };
+      }
+    }
+    const shown = result => (result.status ? `${result.status}${result.error ? ` ${result.error}` : ''}` : result.error);
+
+    // 표는 단계 순서로 보인다(같은 단계 안에서는 보낸 순서). 「운영」 줄은 맨 아래.
+    const stepKey = step => (step === '운영' ? 99 : Number.parseInt(step, 10));
+    function addLive(row) { liveRows.push(row); liveRows.sort((x, y) => stepKey(x.step) - stepKey(y.step)); renderLive(); }
+    // 보낸 요청: 기대 상태(와 오류 코드)와 실제를 글자로 비교한다. 비교 결과만 「일치」「불일치」이며 통과 선언이 아니다.
+    function sent(step, kind, request, expectStatus, expectError, result, note) {
+      const expected = `${expectStatus}${expectError ? ` ${expectError}` : ''}`;
+      const actual = shown(result);
+      addLive({ step, kind, request, expected, actual: note ? `${actual} ${note}` : actual, verdict: actual === expected ? '일치' : '불일치', requestId: result.requestId, at: result.at });
+    }
+    const skipped = (step, kind, request, reason) => addLive({ step, kind, request, expected: '—', actual: `미실행: ${reason}`, verdict: '미실행', requestId: '—', at: '—' });
+
+    function cell(text, className) { return el('td', text, className); }
+    function renderLive() {
+      liveBody.replaceChildren(...liveRows.map(r => {
+        const tr = el('tr');
+        tr.append(cell(r.step), cell(r.kind), cell(r.request), cell(r.expected), cell(r.actual),
+          cell(r.verdict, r.verdict === '일치' ? 'ok' : r.verdict === '불일치' ? 'bad' : 'skip'), cell(r.requestId), cell(r.at));
+        return tr;
+      }));
+      liveWrap.hidden = liveRows.length === 0;
+      const count = name => liveRows.filter(r => r.verdict === name).length;
+      liveSummary.textContent = `${liveRows.length}줄 · 일치 ${count('일치')} · 불일치 ${count('불일치')} · 미실행 ${count('미실행')}`;
+    }
+    const mdCell = text => String(text).replaceAll('|', '/').replaceAll('\n', ' ');
+    function liveToMarkdown() {
+      const head = '| 단계 | 구분 | 요청 | 기대 | 실제 | 결과 | 요청 ID | 확인 시각 |\n|---|---|---|---|---|---|---|---|';
+      const body = liveRows.map(r => `| ${[r.step, r.kind, r.request, r.expected, r.actual, r.verdict, r.requestId, r.at].map(mdCell).join(' | ')} |`);
+      return [head, ...body, '', liveSummary.textContent,
+        '이 표는 이 화면이 방금 배포 사이트에 보낸 요청의 결과입니다. 「일치」는 기대와 실제 글자가 같다는 뜻이며 운영 41종 공격 시험의 통과가 아닙니다.'].join('\n');
+    }
+
+    async function runLive() {
+      if (liveRunning || deviceState !== 'approved') return;
+      liveRunning = true;
+      liveRun.disabled = true;
+      clearLive();
+      let noteId = null;
+      const aId = liveAId.value.trim();
+      const stranger = crypto.randomUUID(); // 아무도 만든 적 없는 번호
+      try {
+        // 1단계
+        const aleph = await liveCall({ method: 'GET', path: '/aleph.json', login: false, sign: 'none' });
+        sent('1', '정상', 'GET /aleph.json', 200, null, aleph, aleph.status === 200 && aleph.data?.commit ? `(commit ${String(aleph.data.commit).slice(0, 7)})` : '');
+        // 2단계
+        skipped('2', '금지', '공개 흔적 확인(git log -S)', 'Git 기록 검사라서 내 PC 명령으로 실행');
+        // 3단계
+        sent('3', '금지', 'GET /api/notes (로그인 없음)', 401, 'LOGIN_REQUIRED', await liveCall({ method: 'GET', path: '/api/notes', login: false, sign: 'none' }));
+        sent('3', '금지', 'GET /data.json (로그인 없음)', 404, null, await liveCall({ method: 'GET', path: '/data.json', login: false, sign: 'none' }));
+        sent('3', '금지', 'DELETE /api/notes/<없는 번호> (로그인 없음)', 401, 'LOGIN_REQUIRED', await liveCall({ method: 'DELETE', path: `/api/notes/${stranger}`, login: false, sign: 'none' }));
+        const list = await liveCall({ method: 'GET', path: '/api/notes' });
+        sent('3', '정상', 'GET /api/notes (로그인+서명)', 200, null, list, Array.isArray(list.data) ? `(내 메모 ${list.data.length}건)` : '');
+        // 4단계: 임시 메모를 만들어 읽고 고치고, 금지 요청을 보낸 뒤 지운다.
+        const made = await liveCall({ method: 'POST', path: '/api/notes', payload: { title: '12단계 실측 확인', body: '임시 메모(곧 지움)' } });
+        sent('4', '정상', 'POST /api/notes (임시 메모 추가)', 201, null, made);
+        if (made.status === 201 && typeof made.data?.id === 'string') noteId = made.data.id;
+        if (noteId) {
+          sent('4', '정상', 'GET /api/notes/<임시 메모>', 200, null, await liveCall({ method: 'GET', path: `/api/notes/${noteId}` }));
+          sent('4', '정상', 'PUT /api/notes/<임시 메모>', 200, null, await liveCall({ method: 'PUT', path: `/api/notes/${noteId}`, payload: { title: '12단계 실측 확인', body: '임시 메모(수정)' } }));
+          sent('4', '금지', 'PUT /api/notes/<임시 메모> + 주인 바꾸기 값', 403, 'OWNER_CHANGE_FORBIDDEN', await liveCall({ method: 'PUT', path: `/api/notes/${noteId}`, payload: { title: 'x', body: 'x', owner_id: stranger } }));
+        } else {
+          for (const r of ['GET', 'PUT', 'PUT(주인 바꾸기)']) skipped('4', r === 'GET' ? '정상' : r === 'PUT' ? '정상' : '금지', `${r} /api/notes/<임시 메모>`, '임시 메모를 만들지 못해 보내지 않음');
+        }
+        sent('4', '금지', 'GET /api/notes/<없는 번호>', 404, 'NOT_FOUND', await liveCall({ method: 'GET', path: `/api/notes/${stranger}` }));
+        if (LIVE_UUID.test(aId)) {
+          sent('4', '금지', 'GET /api/notes/<A의 메모>', 404, 'NOT_FOUND', await liveCall({ method: 'GET', path: `/api/notes/${aId}` }));
+          sent('4', '금지', 'PUT /api/notes/<A의 메모>', 404, 'NOT_FOUND', await liveCall({ method: 'PUT', path: `/api/notes/${aId}`, payload: { title: '12단계 실측 확인', body: '남의 메모 수정 시도' } }));
+          sent('4', '금지', 'DELETE /api/notes/<A의 메모>', 404, 'NOT_FOUND', await liveCall({ method: 'DELETE', path: `/api/notes/${aId}` }));
+        } else {
+          const why = aId ? 'A의 메모 번호 모양이 맞지 않음' : 'A의 메모 번호 칸이 비어 있음';
+          for (const m of ['GET', 'PUT', 'DELETE']) skipped('4', '금지', `${m} /api/notes/<A의 메모>`, why);
+        }
+        // 5단계
+        skipped('5', '금지', '원본 주소 /rest/v1/notes 직접 조회', '공개 키가 필요해 화면에 넣지 않음. 콘솔과 npm run bundle 자기 점검에서 실행');
+        // 6단계: 등록하지 않은 새 기기 키(승인 요청은 보내지 않음)
+        const stray = await makeDevice();
+        sent('6', '금지', 'GET /api/notes (등록 안 된 기기 키 서명)', 403, 'DEVICE_NOT_REGISTERED', await liveCall({ method: 'GET', path: '/api/notes', signDevice: stray }));
+        // 10단계 복구 경로
+        sent('10', '금지', 'POST /api/restore (로그인 없음)', 401, 'LOGIN_REQUIRED', await liveCall({ method: 'POST', path: '/api/restore', payload: { id: stranger }, login: false, sign: 'none' }));
+        sent('10', '금지', 'POST /api/restore <사본 없는 번호>', 404, 'NOT_FOUND', await liveCall({ method: 'POST', path: '/api/restore', payload: { id: stranger, preview: true } }));
+        if (noteId) {
+          const preview = await liveCall({ method: 'POST', path: '/api/restore', payload: { id: noteId, preview: true } });
+          sent('10', '정상', 'POST /api/restore <임시 메모> 미리 보기', 200, null, preview, preview.data?.preview === true ? `(action ${preview.data.action})` : '');
+        } else skipped('10', '정상', 'POST /api/restore <임시 메모> 미리 보기', '임시 메모를 만들지 못해 보내지 않음');
+        // 11단계: 서명이 틀린 요청들
+        sent('11', '금지', 'GET /api/notes (서명 없음)', 403, 'DEVICE_SIGNATURE_REQUIRED', await liveCall({ method: 'GET', path: '/api/notes', sign: 'none' }));
+        sent('11', '금지', 'GET /api/notes/<없는 번호> (다른 경로용 서명)', 403, 'DEVICE_SIGNATURE_INVALID', await liveCall({ method: 'GET', path: `/api/notes/${stranger}`, signPath: '/api/notes' }));
+        sent('11', '금지', 'GET /api/notes (5분 전 시각의 서명)', 403, 'DEVICE_SIGNATURE_INVALID', await liveCall({ method: 'GET', path: '/api/notes', signAt: Date.now() - 5 * 60 * 1000 }));
+        if (noteId) {
+          const signed = JSON.stringify({ title: '서명한 제목', body: '서명한 본문' });
+          sent('11', '금지', 'PUT /api/notes/<임시 메모> (서명 뒤 본문 바꿈)', 403, 'DEVICE_SIGNATURE_INVALID', await liveCall({ method: 'PUT', path: `/api/notes/${noteId}`, payload: { title: '바꾼 제목', body: '바꾼 본문' }, signBody: signed }));
+        } else skipped('11', '금지', 'PUT /api/notes/<임시 메모> (서명 뒤 본문 바꿈)', '임시 메모를 만들지 못해 보내지 않음');
+        // 12단계: 작전실 자체와 서버 쪽 판정기·탐지 가상 요청(6~9단계)
+        sent('12', '금지', 'GET /api/ops (서명 없음)', 403, 'DEVICE_SIGNATURE_REQUIRED', await liveCall({ method: 'GET', path: '/api/ops', sign: 'none' }));
+        sent('12', '금지', 'GET /api/ops (로그인 없음)', 401, 'LOGIN_REQUIRED', await liveCall({ method: 'GET', path: '/api/ops', login: false, sign: 'none' }));
+        const ops = await liveCall({ method: 'GET', path: '/api/ops' });
+        sent('12', '정상', 'GET /api/ops (로그인+서명)', 200, null, ops);
+        if (ops.status === 200 && ops.data?.schema === 'aleph.ops.v1') {
+          const where = `서버 가상 요청(/api/ops ${String(ops.data.requestId).slice(0, 8)})`;
+          const stepOf = ['6', '6', '7', '8'];
+          ops.data.decider.probes.forEach((p, i) => addLive({ step: stepOf[i] ?? '6~8', kind: p.expected === 'allow' ? '정상' : '금지', request: `${where}: ${p.name}`, expected: p.expected, actual: `${p.decision} (${p.reasonCode})`, verdict: p.decision === p.expected ? '일치' : '불일치', requestId: ops.requestId, at: ops.data.checkedAt }));
+          const expectedAction = { 30: 'observe', 121: 'propose_revocation' };
+          ops.data.detection.probes.forEach(p => addLive({ step: '9', kind: p.count === 30 ? '정상' : '금지', request: `${where}: ${p.name}`, expected: expectedAction[p.count] ?? '—', actual: p.action, verdict: p.action === expectedAction[p.count] ? '일치' : '불일치', requestId: ops.requestId, at: ops.data.checkedAt }));
+          skipped('9', '금지', '반 엔진의 실제 접속 사건 전달·회수', ops.data.detection.liveEvents.reason);
+        } else {
+          skipped('6~9', '정상/금지', '서버 가상 요청(판정기·탐지)', '/api/ops 응답을 받지 못함');
+        }
+      } finally {
+        // 임시 메모는 어떤 경우에도 지운다. 지운 뒤 다시 읽어 404가 되는지까지 표에 남긴다.
+        if (noteId) {
+          sent('4', '정상', 'DELETE /api/notes/<임시 메모>', 200, null, await liveCall({ method: 'DELETE', path: `/api/notes/${noteId}` }));
+          sent('4', '정상', 'GET /api/notes/<지운 임시 메모>', 404, 'NOT_FOUND', await liveCall({ method: 'GET', path: `/api/notes/${noteId}` }));
+        }
+        skipped('운영', '금지', '운영 41종 공격 시험', '심판이 실행합니다. 이 화면의 표는 41종의 통과 근거가 아닙니다');
+        liveMarkdown.value = liveToMarkdown();
+        liveCopy.hidden = false;
+        liveRun.disabled = false;
+        liveRunning = false;
+      }
+    }
+    liveRun.addEventListener('click', runLive);
+    liveCopy.addEventListener('click', async () => {
+      liveMarkdown.hidden = false;
+      liveMarkdown.value = liveToMarkdown();
+      liveMarkdown.select();
+      try { await navigator.clipboard.writeText(liveMarkdown.value); liveCopy.textContent = '복사됨'; } catch { liveCopy.textContent = '아래 글을 직접 복사하세요'; }
+      setTimeout(() => { liveCopy.textContent = '표 복사'; }, 2500);
+    });
 
     // 서버에 이 기기의 상태를 묻는다. 서버가 approved라고 답할 때만 자료실을 연다.
     async function checkDevice() {

@@ -98,3 +98,27 @@ test('12단계 제작 1 화면: 탈환 작전실은 승인된 기기에서만 �
   // 받지 못한 값을 지어내지 않는다
   assert.match(html, /받지 못한 값을 지어내 보여 주지 않습니다/);
 });
+
+test('12단계 제작 2 화면: 실측 요청 표는 승인된 기기에서 실제 요청을 보내고, 미실행을 구분하며, 통과를 선언하지 않는다', async () => {
+  const html = await read('public/index.html');
+  assert.match(html, /id="live-run" type="button">실측 요청 표 만들기</);
+  // 요청 ID와 확인 시각은 응답 헤더 그대로, 없으면 「없음」
+  assert.match(html, /response\.headers\.get\('x-vercel-id'\) \|\| '없음'/);
+  assert.match(html, /response\.headers\.get\('date'\) \|\| '없음'/);
+  // 승인 전에는 시작하지 않는다
+  assert.match(html, /if \(liveRunning \|\| deviceState !== 'approved'\) return;/);
+  // 결과 칸은 일치·불일치·미실행 세 가지뿐이며 「통과」로 표시하지 않는다
+  assert.match(html, /verdict: actual === expected \? '일치' : '불일치'/);
+  assert.ok(!/verdict: '통과'/u.test(html));
+  // 화면에서 보낼 수 없는 시험과 운영 41종은 미실행으로 남긴다
+  assert.match(html, /skipped\('2', '금지'/);
+  assert.match(html, /skipped\('5', '금지'/);
+  assert.match(html, /운영 41종 공격 시험', '심판이 실행합니다/);
+  // 임시 메모는 어떤 경우에도 지운다(finally), 등록하지 않은 기기 키로는 승인 요청을 보내지 않는다
+  assert.match(html, /finally \{[\s\S]*DELETE \/api\/notes\/<임시 메모>/);
+  const live = html.slice(html.indexOf('12단계 제작 2: 실측 요청 표'), html.indexOf('// 서버에 이 기기의 상태를 묻는다'));
+  assert.ok(live.length > 1000);
+  assert.ok(!live.includes('/api/device/request') && !live.includes('innerHTML'));
+  // 비밀값·키는 표에 넣지 않는다
+  assert.ok(!/accessToken[^;]*liveRows|liveRows[^;]*accessToken/u.test(live));
+});
