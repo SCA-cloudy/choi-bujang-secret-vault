@@ -35,7 +35,7 @@ export async function run({ base = REPO_ROOT, file = DEFAULT_SNAPSHOT, expectSha
   const targets = planRestore(diff);
   const lines = [
     `복원할 정책 버전: ${snapshot.version} (커밋 ${snapshot.source.commit.slice(0, 7)}, 사본 지문 ${pin})`,
-    '사본 검증: 통과 (모양·지문 일치)',
+    '사본 검증: 통과 (모양·지문 일치, 원본 커밋을 다시 읽어 계산한 지문과 일치)',
     diff.same ? '변경 범위: 없음 (현재 시험 정책이 사본과 같습니다)' : `변경 범위: ${diff.changes.length}건`,
     ...diff.changes.map(change => `  - [${change.area}] ${change.item}: ${KIND_TEXT[change.kind]} (사본 ${change.safe ?? '없음'} / 현재 ${change.current ?? '없음'})`),
   ];

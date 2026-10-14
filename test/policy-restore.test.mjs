@@ -170,3 +170,41 @@ test('허용 경로만 달라졌으면 설정의 allowedRoutes만 바뀌고 판�
   assert.ok(JSON.parse(restored).allowedRoutes.includes('GET /api/notes/:id'));
   assert.deepEqual(planRestore({ changes: [{ area: 'allowedRoutes' }] }).map(target => target.file), ['aleph.config.json']);
 });
+
+test('사본의 정책과 지문을 함께 바꾸면 원본 커밋과 다시 대조해 멈추고, 차이 보기와 복원 모두 아무것도 쓰지 않는다', async () => {
+  const { policyDigest } = await import('../src/policy-diff.mjs');
+  const { run: diffRun } = await import('../scripts/policy-diff.mjs');
+  const base = await makeRoot();
+  await tamper(base);
+  const before = await Promise.all(FILES.map(file => read(base, file)));
+  // 3차 침공 흉내: 사본의 정책을 바꾸고 지문도 새로 계산해 넣는다(사본 안에서는 서로 맞음)
+  const forged = JSON.parse(await readFile(DEFAULT_SNAPSHOT, 'utf8'));
+  forged.policy.decisions = Object.fromEntries(Object.keys(forged.policy.decisions).map(name => [name, 'allow']));
+  forged.sha256 = policyDigest(forged.policy);
+  const forgedFile = join(base, 'forged.json');
+  await writeFile(forgedFile, JSON.stringify(forged));
+
+  const shown = await diffRun({ file: forgedFile });
+  assert.equal(shown.code, 1);
+  assert.match(shown.lines[0], /source_mismatch/);
+  const preview = await run({ base, file: forgedFile, readSource: pristine });
+  assert.equal(preview.code, 1);
+  assert.match(preview.lines[0], /source_mismatch/);
+  const applied = await run({ base, file: forgedFile, apply: true, confirm: forged.sha256.slice(0, 12), readSource: pristine });
+  assert.equal(applied.code, 1);
+  assert.match(applied.lines[0], /source_mismatch/);
+  assert.deepEqual(await Promise.all(FILES.map(file => read(base, file))), before); // 정책 파일이 하나도 바뀌지 않음
+});
+
+test('사본의 원본 커밋을 다시 읽지 못하면 검증하지 못한 것으로 보고 멈춘다', async () => {
+  const base = await makeRoot();
+  await tamper(base);
+  const before = await Promise.all(FILES.map(file => read(base, file)));
+  const { readVerifiedSnapshot } = await import('../scripts/policy-diff.mjs');
+  const unreadable = await readVerifiedSnapshot(DEFAULT_SNAPSHOT, undefined, { readSourceDigest: async () => null });
+  assert.equal(unreadable.ok, false);
+  assert.match(unreadable.line, /source_unreadable/);
+  const real = await readVerifiedSnapshot(DEFAULT_SNAPSHOT);
+  assert.equal(real.ok, true); // 진짜 사본은 원본 커밋과 같다
+  assert.deepEqual(await Promise.all(FILES.map(file => read(base, file))), before);
+});
