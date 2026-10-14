@@ -12,6 +12,7 @@
 // - SUPABASE_URL과 SUPABASE_SECRET_KEY는 Vercel 환경변수에서만 읽고, 어디에도 내보내지 않는다.
 import { randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
+import { requireDevice } from './device-auth.mjs';
 import { noteContentSha256 } from './note-backup.mjs';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iu;
@@ -39,7 +40,9 @@ function readFields(value) {
   return { title, content: value.body };
 }
 
-export function createNotesHandlers({ verifyAuthorization, store }) {
+// deviceCheck: 기본은 승인된 기기의 요청 서명 확인(requireDevice). 메모 논리만 보는 시험에서만 다른 함수를 넣는다.
+export function createNotesHandlers({ verifyAuthorization, store, deviceStore, now,
+  deviceCheck = (request, response, identity) => requireDevice(request, response, identity, { store: deviceStore ?? store, now }) }) {
   function prepare(request, response, allowed) {
     response.setHeader('Cache-Control', 'no-store');
     response.setHeader('Vary', 'Authorization');
@@ -79,6 +82,8 @@ export function createNotesHandlers({ verifyAuthorization, store }) {
     if (!prepare(request, response, ['GET', 'POST'])) return;
     const identity = await login(request, response);
     if (!identity) return;
+    // 11단계: 로그인 다음에 승인된 기기의 요청 서명을 확인한다. 통과하지 못하면 403이고 자료를 주지 않는다.
+    if (!(await deviceCheck(request, response, identity))) return;
     try {
       if (request.method === 'GET') {
         const rows = await store.list(identity.userId);
@@ -113,6 +118,8 @@ export function createNotesHandlers({ verifyAuthorization, store }) {
     if (!prepare(request, response, ['GET', 'PUT', 'DELETE'])) return;
     const identity = await login(request, response);
     if (!identity) return;
+    // 11단계: 로그인 다음에 승인된 기기의 요청 서명을 확인한다. 통과하지 못하면 403이고 자료를 주지 않는다.
+    if (!(await deviceCheck(request, response, identity))) return;
     const raw = request.query?.id;
     const id = typeof raw === 'string' ? raw.toLowerCase() : '';
     if (!UUID.test(id)) return response.status(400).json({ error: 'INVALID_ID' });
@@ -184,6 +191,7 @@ export function createSupabaseStore() {
   }
   const table = async () => (await client()).from('notes');
   const backupTable = async () => (await client()).from('notes_backup');
+  const deviceTable = async () => (await client()).from('devices');
   const fail = error => { throw new Error(`db_failed:${error.code ?? 'unknown'}`); };
   const columns = 'id, owner_id, title, content';
 
@@ -227,6 +235,17 @@ export function createSupabaseStore() {
       const { data, error } = await (await backupTable()).select('id, owner_id, title, content, content_sha256').eq('id', id).eq('owner_id', ownerId).maybeSingle();
       if (error) fail(error);
       return data;
+    },
+    // 11단계: 기기 표. 서버는 읽기와 승인 대기 등록만 한다(승인은 SQL Editor에서 학생이 직접).
+    async getDevice(deviceId) {
+      const { data, error } = await (await deviceTable()).select('device_id, owner_id, public_key, status').eq('device_id', deviceId).maybeSingle();
+      if (error) fail(error);
+      return data;
+    },
+    async addDevice({ deviceId, ownerId, publicKey, label }) {
+      const { error } = await (await deviceTable()).insert({ device_id: deviceId, owner_id: ownerId, public_key: publicKey, label, status: 'pending' });
+      if (error) fail(error);
+      return { status: 'pending' };
     },
     // 사본은 추가만 한다. 이미 같은 ID의 사본이 있으면 덮어쓰지 않는다(첫 한 벌 유지).
     async saveBackup({ id, ownerId, title, content, sha256 }) {

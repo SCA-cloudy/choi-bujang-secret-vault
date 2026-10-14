@@ -9,6 +9,7 @@
 // - 되돌린 뒤 메모를 다시 읽어 ID·소유자·내용 해시가 사본과 같은지 확인하고, 다르면 원래 상태로 돌려놓고 실패로 답합니다.
 // - 서버 기록에는 짧은 이유 코드만 남기고 사용자 ID·토큰·메모 내용은 남기지 않습니다.
 import { checkBackupRow, noteContentSha256 } from './note-backup.mjs';
+import { requireDevice } from './device-auth.mjs';
 import { createSupabaseStore, defaultVerifyAuthorization } from './notes-api.mjs';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iu;
@@ -23,7 +24,9 @@ function readJsonBody(request) {
   return value && typeof value === 'object' && !Array.isArray(value) ? value : null;
 }
 
-export function createRestoreHandler({ verifyAuthorization, store }) {
+// deviceCheck: 기본은 승인된 기기의 요청 서명 확인(requireDevice). 복구 논리만 보는 시험에서만 다른 함수를 넣는다.
+export function createRestoreHandler({ verifyAuthorization, store, deviceStore, now,
+  deviceCheck = (request, response, identity) => requireDevice(request, response, identity, { store: deviceStore ?? store, now }) }) {
   return async function restore(request, response) {
     response.setHeader('Cache-Control', 'no-store');
     response.setHeader('Vary', 'Authorization');
@@ -41,6 +44,8 @@ export function createRestoreHandler({ verifyAuthorization, store }) {
       response.setHeader('WWW-Authenticate', 'Bearer');
       return response.status(401).json({ error: 'LOGIN_REQUIRED' });
     }
+    // 11단계: 로그인 다음에 승인된 기기의 요청 서명을 확인한다.
+    if (!(await deviceCheck(request, response, identity))) return;
 
     const value = readJsonBody(request);
     if (!value) return response.status(400).json({ error: 'INVALID_RESTORE_REQUEST' });
