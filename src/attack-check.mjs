@@ -50,7 +50,7 @@ async function anonymousApiResult(app, path, init = {}) {
 }
 
 export async function runAttackChecks(config) {
-  if (![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11].includes(config.step)) {
+  if (![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].includes(config.step)) {
     throw new Error('이 단계의 공격 점검을 src/attack-check.mjs에 구현해 주세요.');
   }
   const app = checkedAppUrl(config);
@@ -254,6 +254,18 @@ export async function runAttackChecks(config) {
     results.push({ attackId: 'device_signature_tamper_denied',
       expected: '승인된 기기라도 서명 없음은 DEVICE_SIGNATURE_REQUIRED, 서명 뒤 경로·본문 변경은 DEVICE_SIGNATURE_INVALID, 올바른 서명은 allow (기기 확인 함수를 직접 부른 연습)',
       observed: `기기 확인 함수에 넣은 가상 요청의 결과: 서명 없음 ${unsigned}, 경로 변경 ${moved}, 본문 변경 ${tampered}, 올바른 서명 ${normal}` });
+    if (config.step === 11) return results;
+
+    // 12단계: 탈환 작전실 요약(GET /api/ops)을 로그인 없이 불러 본다. 작전실은 로그인과 승인된 기기의 서명이 있어야 열리므로 거부되어야 한다.
+    // 이 요청은 사이트로 실제로 보낸 요청이며 심판의 판정이 아니다. 작전실의 정상 응답과 1~12단계의 정상·금지 요청 표는 로그인과
+    // 기기 서명이 필요해 이 점검에 넣지 않고, 화면에서 직접 만든 결과를 docs/LIVE_CHECKS.md에 따로 적는다.
+    // 제출 묶음은 직접 점검을 20개까지만 받으므로, 6단계의 「등록 기기 읽기 허용」과 겹치는 7단계의 정상 사건 허용 점검 한 개를 빼고 이 한 개를 넣는다.
+    const ops = await anonymousApiResult(app, '/api/ops');
+    const normalIndex = results.findIndex(item => item.attackId === 'decider_normal_event_allowed');
+    if (normalIndex >= 0) results.splice(normalIndex, 1);
+    results.push({ attackId: 'anonymous_ops_request',
+      expected: '로그인 없이 탈환 작전실 요약(GET /api/ops)을 요청하면 401 또는 403으로 거부',
+      observed: seen(ops) });
     return results;
   }
 

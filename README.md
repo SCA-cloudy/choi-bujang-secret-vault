@@ -18,9 +18,18 @@
 
 로컬에서 가상 화면만 확인할 때는 `npm run build -- --local`을 사용합니다. 로컬 실행은 Vercel 배포나 심판 접수를 증명하지 않습니다. 저장소의 `src/attack-check.mjs`는 실제 배포가 된 뒤 비로그인으로 요청해 결과를 기록합니다. 1단계는 `/data.json`의 확인 표시를 읽고, 2·3단계는 비로그인 요청의 상태 코드·오류 문구·메모 개수만 기록하며 메모 본문은 기록하지 않습니다.
 
-## 12단계 진행 중 (탈환 작전실을 완성합니다, 2026-10-14)
+## 12단계 현재 상태 (탈환 작전실을 완성합니다, 2026-10-14 저장점)
 
-아직 12단계 저장점이 아닙니다. `aleph.config.json`의 `step`은 11 그대로이며, 제출 전 확인에서 올립니다.
+`aleph.config.json`의 `step`을 12로 올렸습니다. 배포 주소(`publicAppUrl`), 로그인 발급자(`identityProvider`), 허용 경로(`allowedRoutes` 메모 API 다섯 개), 원본 API 주소(`originalApiUrl`), `restoreRoute`는 11단계와 같고, `judgeIssuer`는 운영 측이 채운 값이라 바꾸지 않았습니다. 새 기기 경로와 `/api/ops`는 11단계의 기기 경로처럼 `allowedRoutes`에 넣지 않았습니다(넣으면 안전 정책 사본 `safe-9`와 달라져 복원 전 사본 검증이 정책 변경으로 판단함). 판정기(`src/decider.mjs`)는 바꾸지 않았고 `RULE_IDS`는 실제로 구현한 세 규칙(`device_registered`, `step_up_required`, `resource_zone`) 그대로입니다. 자기 점검(`src/attack-check.mjs`)은 12단계를 받도록 고쳤습니다. 제출 묶음이 받는 직접 점검은 최대 20개라서, 6단계의 「등록 기기 읽기 허용」과 겹치는 7단계의 정상 사건 허용 점검(`decider_normal_event_allowed`) 한 개를 빼고 **로그인 없이 `GET /api/ops`를 보내 401·403으로 거부되는지** 보는 점검 한 개(`anonymous_ops_request`)를 넣었습니다. 이 한 개는 사이트로 실제 보낸 요청의 결과이며 심판의 판정이 아닙니다. 11단계 이하의 점검 결과는 그대로입니다.
+
+**지금 작동하는 기능(12단계):** 탈환 작전실(승인된 기기에서만 열리고, 서명한 `GET /api/ops`로 판정기·탐지·회수·복구 네 칸을 「실측」과 「미실행」으로 나눠 보여 줌), 실측 요청 표(1~12단계의 정상·금지 요청을 배포 사이트로 보내 기대·실제·요청 ID·확인 시각을 한 표로 만들고 복사), 설치·실행·중지·복구 안내와 출처 구분(아래 제작 3). 1~11단계 기능은 그대로입니다(로그인, 메모 API, 기기 승인과 요청 서명, 복구 경로, 정책 사본 되돌리기, 백업 복원 훈련).
+
+**다시 실행하는 방법:** `node --test`(전체 146개 중 알려진 실패 `package-starter` 1개를 빼고 통과), `node --test test/ops-api.test.mjs test/app-shell.test.mjs test/r5.test.mjs`, `npm run decider:test`, `npm run detect:test`, `npm run policy:diff`, `npm run bundle`(커밋 뒤 학생 PC). 배포 사이트에서는 B로 로그인 → 「이 기기 승인 요청」 → SQL Editor에서 승인 → 「승인 상태 다시 확인」 → 작전실 → 「실측 요청 표 만들기」(표 전체는 `docs/LIVE_CHECKS.md`).
+
+| 확인 | 결과 | 상태 |
+|---|---|---|
+| 심판 판정 | 제출 전 | 미실행 |
+| 운영 41종 공격 시험 | 심판이 실행. 이 저장소의 표·화면은 통과 근거가 아님 | 미실행 |
 
 ### 제작 1: 탈환 작전실 (`GET /api/ops` + 화면)
 

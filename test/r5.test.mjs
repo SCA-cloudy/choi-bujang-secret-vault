@@ -411,3 +411,38 @@ test('step 11 attack check keeps 20 records, swaps one step 7 practice for the l
     globalThis.fetch = originalFetch;
   }
 });
+
+test('step 12 attack check keeps 20 records, swaps one overlapping step 7 practice for an anonymous /api/ops request', async () => {
+  const originalFetch = globalThis.fetch;
+  const requested = [];
+  try {
+    globalThis.fetch = async (url, init = {}) => {
+      requested.push(`${init.method ?? 'GET'} ${new URL(String(url)).pathname}`);
+      return String(url).endsWith('/data.json')
+        ? new Response('Not found', { status: 404 })
+        : new Response(JSON.stringify({ error: 'LOGIN_REQUIRED' }), { status: 401, headers: { 'content-type': 'application/json' } });
+    };
+    const base = { ...config, originalApiUrl: 'https://example-project.supabase.co/rest/v1/notes' };
+    const eleven = await runAttackChecks({ ...base, step: 11 });
+    requested.length = 0;
+    const results = await runAttackChecks({ ...base, step: 12 });
+    assert.equal(results.length, 20);
+    assert.equal(requested.at(-1), 'GET /api/ops');                                  // 사이트로 실제 보낸 요청, 읽기 한 번
+    assert.ok(!requested.some(line => line.startsWith('POST /api/ops') || line.startsWith('PUT /api/ops') || line.startsWith('DELETE /api/ops')));
+    assert.ok(!results.some(item => item.attackId === 'decider_normal_event_allowed'));
+    assert.equal(results.at(-1).attackId, 'anonymous_ops_request');
+    assert.match(results.at(-1).observed, /HTTP 401, 오류 문구 LOGIN_REQUIRED, 가상 메모 0건/u);
+    // 11단계 결과 중 빠진 것은 하나뿐이고, 나머지는 같은 순서로 그대로
+    assert.deepEqual(results.slice(0, 19).map(item => item.attackId),
+      eleven.map(item => item.attackId).filter(id => id !== 'decider_normal_event_allowed'));
+    assert.equal(new Set(results.map(item => item.attackId)).size, 20);
+    for (const item of results) {
+      assert.deepEqual(Object.keys(item).sort(), ['attackId', 'expected', 'observed']);
+      assert.ok(item.expected.length <= 300 && item.observed.length <= 300);
+      assert.ok(!/eyJ|BEGIN|sb_secret_/u.test(item.observed));
+    }
+    await assert.rejects(runAttackChecks({ ...base, step: 13 }));                   // 13단계는 아직 구현하지 않음
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
