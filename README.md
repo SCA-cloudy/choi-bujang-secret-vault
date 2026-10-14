@@ -18,9 +18,11 @@
 
 로컬에서 가상 화면만 확인할 때는 `npm run build -- --local`을 사용합니다. 로컬 실행은 Vercel 배포나 심판 접수를 증명하지 않습니다. 저장소의 `src/attack-check.mjs`는 실제 배포가 된 뒤 비로그인으로 요청해 결과를 기록합니다. 1단계는 `/data.json`의 확인 표시를 읽고, 2·3단계는 비로그인 요청의 상태 코드·오류 문구·메모 개수만 기록하며 메모 본문은 기록하지 않습니다.
 
-## 10단계 현재 상태 (백업에서 자료실을 되살립니다, 2026-10-13)
+## 10단계 현재 상태 (백업에서 자료실을 되살립니다, 2026-10-14 저장점)
 
 `aleph.config.json`의 `step`을 10으로 올렸습니다. 허용 경로(`allowedRoutes` 다섯 개), 로그인 발급자, 원본 API 주소, `judgeIssuer`는 9단계와 같고, 복구 경로는 `restoreRoute`에 `POST /api/restore`로 적었습니다. `RULE_IDS`는 판정기의 구현된 규칙 세 개(`device_registered`, `step_up_required`, `resource_zone`) 그대로이며, 정책 되돌리기·복구는 판정기 규칙이 아니라 `RULE_IDS`에 넣지 않았습니다. 자기 점검 `src/attack-check.mjs`는 10단계에서 9단계의 기록 열아홉 개를 그대로 남기고, 로그인 없이 복구 경로를 부른 결과 한 개(`anonymous_restore_request`, 없는 가짜 번호만 사용)를 더해 모두 스무 개를 기록합니다. 제출 묶음이 받는 직접 점검의 최대 개수가 스무 개라서 10단계에서는 이 한 개만 더했습니다. 이 한 개는 사이트로 실제로 보낸 요청의 결과이며 심판의 판정이 아닙니다.
+
+**지금 작동하는 기능(10단계):** 정책 사본 차이 보기(`npm run policy:diff`, 읽기 전용), 검증한 정책 사본으로 되돌리기(`npm run policy:restore`, 미리보기 후 `--apply --confirm <지문>`), 메모 한 건 복구 경로(`POST /api/restore`, 실행 전 미리 보기 `preview`), 사전 백업 다시 읽어 검증(`supabase/006_verify_notes_backup.sql`), 백업 복원 훈련과 기록(`npm run backup:drill` → `policy/restore-drill.json`). 1~9단계 기능은 그대로입니다.
 
 ### 백업 복원 훈련과 기록 (`npm run backup:drill`)
 
@@ -53,7 +55,7 @@
 
 **대조와 범위:** 복구는 사본의 ID가 요청과 같고, 소유자가 서버가 확인한 로그인 사용자와 같고, 저장된 내용 해시(sha256, 제목 + 0x00 + 내용)가 사본 내용에서 다시 계산한 값과 같을 때만 합니다. 바꾸는 곳은 그 메모 한 행뿐입니다(있으면 내용을 되돌리고, 지워졌으면 같은 ID·소유자로 다시 만듭니다). 다른 메모, 사본 표, 서버 기록은 고치거나 지우지 않습니다. 되돌린 뒤 다시 읽어 ID·소유자·해시가 사본과 같은지 확인합니다.
 
-**다시 실행하는 방법:** `npm run test:restore`(17개, 미리 보기 시험 3개·사본 다시 읽기 시험 2개 포함), `npm run test:notes`(15개), `npm run test:r5`(14개, 10단계 자기 점검 시험 포함), `npm run policy:diff`(변경 범위 없음), `npm run bundle`(변경을 커밋한 뒤 학생 PC에서 실행).
+**다시 실행하는 방법:** `npm run backup:drill -- --no-write`(복원 훈련 17항목, 기록 없이 실행), `node --test test/restore-drill.test.mjs`(3개), `npm run test:restore`(17개, 미리 보기 시험 3개·사본 다시 읽기 시험 2개 포함), `npm run test:notes`(15개), `npm run test:r5`(14개, 10단계 자기 점검 시험 포함), `npm run policy:diff`(변경 범위 없음), `npm run bundle`(변경을 커밋한 뒤 학생 PC에서 실행).
 
 | 확인한 것 | 결과 | 상태 |
 |---|---|---|
