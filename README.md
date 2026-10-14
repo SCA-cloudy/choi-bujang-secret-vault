@@ -18,7 +18,13 @@
 
 로컬에서 가상 화면만 확인할 때는 `npm run build -- --local`을 사용합니다. 로컬 실행은 Vercel 배포나 심판 접수를 증명하지 않습니다. 저장소의 `src/attack-check.mjs`는 실제 배포가 된 뒤 비로그인으로 요청해 결과를 기록합니다. 1단계는 `/data.json`의 확인 표시를 읽고, 2·3단계는 비로그인 요청의 상태 코드·오류 문구·메모 개수만 기록하며 메모 본문은 기록하지 않습니다.
 
-## 11단계 진행 중 (나만의 접속 앱을 완성합니다, 2026-10-14)
+## 11단계 현재 상태 (나만의 접속 앱을 완성합니다, 2026-10-14 저장점)
+
+`aleph.config.json`의 `step`을 11로 올렸습니다. 배포 주소, 로그인 발급자, 원본 API 주소, `judgeIssuer`, `restoreRoute`는 10단계와 같습니다. 허용 경로(`allowedRoutes`)는 메모 API 다섯 개 그대로이고, 새 기기 경로(`POST /api/device/request`, `GET /api/device/status`)는 10단계의 복구 경로처럼 넣지 않았습니다(넣으면 안전 정책 사본 `safe-9`과 달라져 복원 전 사본 검증이 정책 변경으로 판단함). 판정기(`src/decider.mjs`)는 바꾸지 않았고 `RULE_IDS`는 구현된 세 규칙(`device_registered`, `step_up_required`, `resource_zone`) 그대로입니다. 자기 점검(`src/attack-check.mjs`)은 제출 묶음이 받는 최대 20개를 이미 채워서 바꾸지 않았습니다(로그인 없는 요청은 기기 확인보다 앞의 로그인 확인에서 `401`로 막힘).
+
+**지금 작동하는 기능(11단계):** 설치형 웹앱 설정(`public/manifest.webmanifest`)·오프라인 안내(`public/sw.js`, 자료를 저장하지 않음)·기기 승인 상태 표시, 기기 승인 흐름(로그인 → 꺼낼 수 없는 기기 키를 메모리에 만듦 → 「이 기기 승인 요청」으로 대기 등록 → 학생이 SQL Editor에서 승인 → 「승인 상태 다시 확인」 → 자료실 열림), 메모·복구 요청마다 기기 서명(방식·경로·시각·본문 해시)을 서버가 확인. 로그인 출입증과 기기 키는 브라우저 저장소에 넣지 않습니다(새로고침하면 다시 로그인·승인). 1~10단계 기능은 그대로입니다.
+
+**다시 실행하는 방법:** `node --test test/device-auth.test.mjs`(기기 승인·서명 7개), `node --test test/app-shell.test.mjs`(화면 5개), `node --test test/*.test.mjs`(전체), `npm run backup:verify`, `npm run bundle`(커밋 뒤 학생 PC). 배포 사이트에서는 B로 로그인 → 승인 요청 → SQL Editor `update public.devices set status = 'approved', approved_at = now() where device_id = '<기기 번호>' and status = 'pending';` → 「승인 상태 다시 확인」.
 
 ### 제작 1: 설치형 웹앱 설정과 기기 승인 상태 표시
 
