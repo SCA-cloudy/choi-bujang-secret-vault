@@ -35,6 +35,25 @@ test('화면은 manifest를 연결하고 기기 승인 상태를 "확인 전"으
   assert.ok(!/supabase\.co|sb_publishable_|sb_secret_/u.test(html));
 });
 
+test('11단계 제작 2 화면: 출입증·기기 키는 메모리에만 두고, 승인 전에는 자료 요청을 보내지 않으며, 요청마다 서명한다', async () => {
+  const html = await read('public/index.html');
+  // 브라우저 저장소에 쓰지 않는다(예전 로그인 정보를 지우는 removeItem 한 번만 있음)
+  assert.ok(!/localStorage\.setItem|sessionStorage\.setItem|indexedDB\.open/u.test(html));
+  assert.match(html, /let session = null;/);
+  // 기기 키는 꺼낼 수 없는 키로 만든다
+  assert.match(html, /generateKey\(\{ name: 'ECDSA', namedCurve: 'P-256' \}, false, \['sign', 'verify'\]\)/);
+  // 서버와 같은 서명 글자열과 헤더
+  assert.match(html, /const SIGNATURE_VERSION = 'BYTEBACK-DEVICE-V1';/);
+  assert.match(html, /\[SIGNATURE_VERSION, method, path, time, await sha256Hex\(bodyText\)\]\.join\('\\n'\)/);
+  for (const name of ['X-Device-Id', 'X-Device-Time', 'X-Device-Signature']) assert.ok(html.includes(`'${name}'`), name);
+  // 승인 전에는 메모 요청을 보내지 않고 자료를 표시하지 않는다
+  assert.match(html, /if \(deviceState !== 'approved'\) return \{ ok: false, status: 403 \};/);
+  assert.match(html, /이 기기가 승인되기 전에는 자료를 표시하지 않습니다/);
+  // 화면에는 승인 "요청" 버튼만 있고 승인 버튼은 없다
+  assert.match(html, /id="device-request" type="button">이 기기 승인 요청</);
+  assert.ok(!/>\s*승인하기\s*</u.test(html));
+});
+
 function loadWorker(fetchImpl) {
   const listeners = {};
   const self = { addEventListener: (type, fn) => { listeners[type] = fn; }, skipWaiting: async () => {}, clients: { claim: async () => {} } };

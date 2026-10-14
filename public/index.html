@@ -35,6 +35,12 @@
     .device h2 { margin: 0 0 8px; font-size: 18px; }
     .device p { margin: 6px 0; font-size: 15px; }
     .device .status { font-weight: 700; color: #ffe08a; }
+    .device .status.ok { color: #8ff0c2; }
+    .device .row { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+    .device button { padding: 9px 13px; border: 0; border-radius: 10px; background: #c9a650; color: #241a04; font-size: 15px; font-weight: 700; cursor: pointer; }
+    .device button.secondary { background: #2c4259; color: #ecf4ff; }
+    .device button:disabled { opacity: .6; cursor: wait; }
+    .device code { font-size: 15px; color: #ffe08a; }
     [hidden] { display: none !important; }
   </style>
 </head>
@@ -49,6 +55,12 @@
       <p class="status" id="device-status">확인 전: 이 기기는 아직 서버의 승인 확인을 받지 않았습니다.</p>
       <p>앱으로 설치(홈 화면에 추가)해도 기기 확인이 끝난 것은 아닙니다. 승인 여부는 서버와 판정기가 정하며, 이 화면의 표시나 버튼만으로 권한이 생기지 않습니다.</p>
       <p id="install-mode">열린 방식: 확인 중</p>
+      <p id="device-id" hidden></p>
+      <div class="row" id="device-actions" hidden>
+        <button id="device-request" type="button">이 기기 승인 요청</button>
+        <button id="device-refresh" class="secondary" type="button">승인 상태 다시 확인</button>
+      </div>
+      <p class="error" id="device-error" role="alert"></p>
     </section>
     <section class="login" aria-labelledby="login-title">
       <h2 id="login-title">로그인</h2>
@@ -78,7 +90,11 @@
   <script type="module">
     // 5단계: 이 화면은 자료 저장소나 로그인 서버를 직접 부르지 않는다. 로그인·연장·로그아웃과 메모 요청은 모두
     // 우리 서버 함수(/api/auth/*, /api/notes)로만 보낸다. 키와 비밀번호는 이 파일에 두지 않는다.
-    const SESSION_KEY = 'byteback-session';
+    // 11단계 제작 2: 로그인 출입증과 기기 키는 이 화면의 메모리에만 둔다(localStorage·sessionStorage·IndexedDB에 넣지 않음).
+    // 그래서 새로고침하거나 창을 닫으면 다시 로그인하고 기기 승인도 다시 받아야 한다.
+    // 기기 키는 밖으로 꺼낼 수 없는 ECDSA P-256 키이고, 서버에는 공개 키만 보낸다. 승인은 서버 쪽에서만 하며,
+    // 이 화면의 버튼은 "승인 대기" 요청만 보낸다. 승인된 기기의 서명이 붙은 요청만 서버가 자료를 준다.
+    const SIGNATURE_VERSION = 'BYTEBACK-DEVICE-V1';
     const form = document.querySelector('#login-form');
     const emailInput = document.querySelector('#login-email');
     const passwordInput = document.querySelector('#login-password');
@@ -94,7 +110,15 @@
     const saveButton = document.querySelector('#note-save');
     const cancelButton = document.querySelector('#note-cancel');
     const noteError = document.querySelector('#note-error');
-    let session = loadSession();
+    const deviceStatus = document.querySelector('#device-status');
+    const deviceIdText = document.querySelector('#device-id');
+    const deviceActions = document.querySelector('#device-actions');
+    const deviceRequest = document.querySelector('#device-request');
+    const deviceRefresh = document.querySelector('#device-refresh');
+    const deviceError = document.querySelector('#device-error');
+    let session = null;      // 메모리에만 둔다
+    let device = null;       // { privateKey(꺼낼 수 없음), publicKey(JWK), deviceId } 메모리에만 둔다
+    let deviceState = 'none'; // none(키 없음) | unregistered | pending | approved
     let editingId = null;
     let loadTurn = 0;
 
@@ -106,30 +130,14 @@
 
     function messageFor(status) {
       if (status === 401) return '로그인을 확인하지 못했습니다. 다시 로그인해 주세요.';
+      if (status === 403) return '승인된 기기에서 서명한 요청만 처리합니다. 기기 승인 상태를 확인해 주세요.';
       if (status === 404) return '이미 없는 메모입니다.';
       if (status === 400) return '제목은 1~200자, 내용은 5000자까지 쓸 수 있습니다.';
       return '처리하지 못했습니다. 잠시 뒤에 다시 해 주세요.';
     }
 
-    function loadSession() {
-      try {
-        const value = JSON.parse(localStorage.getItem(SESSION_KEY));
-        if (value && typeof value.accessToken === 'string' && typeof value.refreshToken === 'string'
-            && Number.isFinite(value.expiresAt)) return value;
-      } catch {
-        // 저장소를 못 읽으면 로그인하지 않은 상태로 시작한다.
-      }
-      return null;
-    }
-
     function saveSession(next) {
-      session = next;
-      try {
-        if (next) localStorage.setItem(SESSION_KEY, JSON.stringify(next));
-        else localStorage.removeItem(SESSION_KEY);
-      } catch {
-        // 저장하지 못해도 이 화면을 닫기 전까지는 로그인 상태를 쓴다.
-      }
+      session = next; // 메모리에만 둔다
     }
 
     // 로그인·연장·로그아웃 요청을 우리 서버 함수로 보낸다.
@@ -157,33 +165,54 @@
       if (!session) return false;
       const result = await postAuth('/api/auth/refresh', { refreshToken: session.refreshToken });
       if (result.ok && validSession(result.data)) {
-        saveSession(result.data);
+        saveSession({ ...result.data, email: session.email });
         return true;
       }
       if (result.status === 401) {
-        saveSession(null);
-        showSignedIn();
+        signOutLocally();
       }
       return false;
     }
 
-    // 로그인한 사람의 출입증을 서버에 함께 보낸다. 출입증이 없으면 요청하지 않는다.
-    async function callApi(method, path, payload, retried = false) {
-      if (!session) return { ok: false, status: 401 };
+    // ---------- 기기 키와 서명 ----------
+    const b64url = bytes => btoa(String.fromCharCode(...new Uint8Array(bytes))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+    const hex = bytes => [...new Uint8Array(bytes)].map(b => b.toString(16).padStart(2, '0')).join('');
+    const sha256Hex = async text => hex(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text)));
+
+    async function makeDevice() {
+      const pair = await crypto.subtle.generateKey({ name: 'ECDSA', namedCurve: 'P-256' }, false, ['sign', 'verify']);
+      const { kty, crv, x, y } = await crypto.subtle.exportKey('jwk', pair.publicKey);
+      const publicKey = { kty, crv, x, y };
+      const deviceId = (await sha256Hex(`${crv}|${x}|${y}`)).slice(0, 16);
+      return { privateKey: pair.privateKey, publicKey, deviceId };
+    }
+
+    // 서명할 글자열은 서버(src/device-auth.mjs)와 같다: 버전, 방식, 경로, 시각(ms), 본문 sha256.
+    async function deviceHeaders(method, path, bodyText) {
+      const time = String(Date.now());
+      const message = [SIGNATURE_VERSION, method, path, time, await sha256Hex(bodyText)].join('\n');
+      const signature = await crypto.subtle.sign({ name: 'ECDSA', hash: 'SHA-256' }, device.privateKey, new TextEncoder().encode(message));
+      return { 'X-Device-Id': device.deviceId, 'X-Device-Time': time, 'X-Device-Signature': b64url(signature) };
+    }
+
+    // 로그인 출입증과 기기 서명을 함께 붙여 보낸다. 둘 중 하나라도 없으면 요청하지 않는다.
+    async function signedFetch(method, path, payload, retried = false) {
+      if (!session || !device) return { ok: false, status: session ? 403 : 401 };
       if (session.expiresAt * 1000 - Date.now() < 60000) {
         const renewed = await refreshSession();
         if (!renewed && (!session || session.expiresAt * 1000 <= Date.now())) return { ok: false, status: 401 };
       }
-      const headers = { Authorization: `Bearer ${session.accessToken}` };
+      const bodyText = payload ? JSON.stringify(payload) : '';
+      const headers = { Authorization: `Bearer ${session.accessToken}`, ...(await deviceHeaders(method, path, bodyText)) };
       const options = { method, cache: 'no-store', headers };
       if (payload) {
         headers['Content-Type'] = 'application/json';
-        options.body = JSON.stringify(payload);
+        options.body = bodyText;
       }
       try {
         const response = await fetch(path, options);
         if (response.status === 401 && !retried && await refreshSession()) {
-          return callApi(method, path, payload, true);
+          return signedFetch(method, path, payload, true);
         }
         const data = await response.json().catch(() => null);
         return { ok: response.ok, status: response.status, data };
@@ -191,6 +220,59 @@
         return { ok: false, status: 0 };
       }
     }
+
+    // 메모 요청은 승인된 기기에서만 보낸다(서버도 따로 확인한다).
+    async function callApi(method, path, payload) {
+      if (deviceState !== 'approved') return { ok: false, status: 403 };
+      return signedFetch(method, path, payload);
+    }
+
+    function showDevice() {
+      const signedIn = Boolean(session?.accessToken);
+      deviceActions.hidden = !signedIn || deviceState === 'approved';
+      deviceRequest.hidden = deviceState === 'pending';
+      deviceIdText.hidden = !device || !signedIn;
+      if (device) deviceIdText.innerHTML = `기기 번호: <code>${device.deviceId}</code> (공개 키에서 만든 번호, 개인키 아님)`;
+      deviceStatus.classList.toggle('ok', deviceState === 'approved');
+      deviceStatus.textContent = !signedIn
+        ? '확인 전: 로그인하면 이 기기의 승인 상태를 확인합니다.'
+        : deviceState === 'approved' ? '승인됨: 서버가 이 기기를 등록 기기로 확인했습니다. 서명한 요청만 자료실이 열립니다.'
+          : deviceState === 'pending' ? '승인 대기: 서버 쪽 승인이 끝나기 전에는 자료를 표시하지 않습니다.'
+            : deviceState === 'unregistered' ? '미등록: 이 기기는 아직 승인 요청을 하지 않았습니다. 승인 전에는 자료를 표시하지 않습니다.'
+              : '확인 전: 이 기기는 아직 서버의 승인 확인을 받지 않았습니다.';
+      editor.hidden = !signedIn || deviceState !== 'approved';
+    }
+
+    // 서버에 이 기기의 상태를 묻는다. 서버가 approved라고 답할 때만 자료실을 연다.
+    async function checkDevice() {
+      deviceError.textContent = '';
+      if (!session || !device) { deviceState = 'none'; showDevice(); return; }
+      const result = await signedFetch('GET', '/api/device/status');
+      if (result.ok && ['pending', 'approved'].includes(result.data?.status) && result.data?.deviceId === device.deviceId) deviceState = result.data.status;
+      else if (result.status === 403) deviceState = 'unregistered';
+      else deviceError.textContent = '기기 상태를 확인하지 못했습니다. 잠시 뒤에 다시 확인해 주세요.';
+      showDevice();
+      loadNotes();
+    }
+
+    deviceRequest.addEventListener('click', async () => {
+      if (!session || !device) return;
+      deviceError.textContent = '';
+      deviceRequest.disabled = true;
+      // 승인 "요청"만 보낸다. 이 요청으로 권한이 생기지 않는다.
+      const result = await signedFetch('POST', '/api/device/request', { publicKey: device.publicKey, label: navigator.platform?.slice(0, 40) || '브라우저' });
+      deviceRequest.disabled = false;
+      if (result.ok && result.data?.deviceId === device.deviceId) deviceState = result.data.status === 'approved' ? 'approved' : 'pending';
+      else deviceError.textContent = '승인 요청을 보내지 못했습니다. 잠시 뒤에 다시 해 주세요.';
+      showDevice();
+      loadNotes();
+    });
+
+    deviceRefresh.addEventListener('click', async () => {
+      deviceRefresh.disabled = true;
+      await checkDevice();
+      deviceRefresh.disabled = false;
+    });
 
     function resetEditor() {
       editingId = null;
@@ -242,6 +324,11 @@
         showMessage('로그인하면 가상 자료가 보입니다.');
         return;
       }
+      if (deviceState !== 'approved') {
+        // 승인 전에는 자료 요청을 보내지 않고, 보호 자료를 표시하지 않는다.
+        showMessage('이 기기가 승인되기 전에는 자료를 표시하지 않습니다.');
+        return;
+      }
       showMessage('가상 자료를 불러오는 중입니다.');
       const result = await callApi('GET', '/api/notes');
       if (turn !== loadTurn) return;
@@ -269,11 +356,20 @@
         : '로그인하지 않은 상태입니다.';
       form.hidden = signedIn;
       logout.hidden = !signedIn;
-      editor.hidden = !signedIn;
       if (!signedIn) {
         resetEditor();
         noteError.textContent = '';
       }
+      showDevice();
+    }
+
+    // 이 화면의 메모리에서 로그인 출입증과 기기 키를 지운다.
+    function signOutLocally() {
+      saveSession(null);
+      device = null;
+      deviceState = 'none';
+      showSignedIn();
+      loadNotes();
     }
 
     function reasonFor(result) {
@@ -310,16 +406,20 @@
       event.preventDefault();
       errorText.textContent = '';
       submit.disabled = true;
-      const result = await postAuth('/api/auth/login', {
-        email: emailInput.value.trim(),
-        password: passwordInput.value,
-      });
+      const email = emailInput.value.trim();
+      const result = await postAuth('/api/auth/login', { email, password: passwordInput.value });
       passwordInput.value = '';
       submit.disabled = false;
       if (result.ok && validSession(result.data)) {
-        saveSession(result.data);
+        saveSession({ ...result.data, email: result.data.email || email });
+        try {
+          device = await makeDevice();
+        } catch {
+          device = null;
+          deviceError.textContent = '이 브라우저에서 기기 키를 만들지 못했습니다(HTTPS와 최신 브라우저가 필요합니다).';
+        }
         showSignedIn();
-        loadNotes();
+        await checkDevice();
       } else {
         errorText.textContent = reasonFor(result);
       }
@@ -329,12 +429,10 @@
       errorText.textContent = '';
       const token = session?.accessToken;
       const result = token ? await postAuth('/api/auth/logout', {}, token) : { ok: true };
-      // 서버가 응답하지 못해도 이 기기의 로그인 정보는 지운다.
-      saveSession(null);
-      showSignedIn();
-      loadNotes();
+      // 서버가 응답하지 못해도 이 화면의 로그인 정보와 기기 키는 지운다.
+      signOutLocally();
       if (!result.ok && result.status !== 401) {
-        errorText.textContent = '서버에서 로그아웃을 끝내지 못했습니다. 이 기기에서는 로그아웃했습니다.';
+        errorText.textContent = '서버에서 로그아웃을 끝내지 못했습니다. 이 화면에서는 로그아웃했습니다.';
       }
     });
 
@@ -346,6 +444,8 @@
     // 오프라인 안내만 하는 서비스 워커를 등록한다(자료·출입증은 저장하지 않음). 등록에 실패해도 화면은 그대로 쓴다.
     if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => {});
 
+    // 예전 버전이 남긴 로그인 정보가 있으면 지운다(이제 브라우저 저장소에 넣지 않는다).
+    try { localStorage.removeItem('byteback-session'); } catch { /* 무시 */ }
     showSignedIn();
     loadNotes();
   </script>
