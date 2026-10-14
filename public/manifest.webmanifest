@@ -1,0 +1,14 @@
+{
+  "name": "BYTE BACK 내 자료실",
+  "short_name": "내 자료실",
+  "description": "실습용 가상 자료실 접속 화면입니다. 앱으로 설치해도 기기 승인이 끝난 것은 아니며, 승인 여부는 서버와 판정기가 정합니다.",
+  "lang": "ko",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#101a28",
+  "theme_color": "#101a28",
+  "icons": [
+    { "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
+  ]
+}

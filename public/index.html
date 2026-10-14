@@ -4,6 +4,9 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>BYTE BACK | 점령된 자료실</title>
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="icon" href="/icon.svg" type="image/svg+xml">
+  <meta name="theme-color" content="#101a28">
   <style>
     :root { color-scheme: dark; font-family: system-ui, sans-serif; }
     body { margin: 0; min-height: 100vh; background: #101a28; color: #ecf4ff; }
@@ -28,15 +31,25 @@
     .login button:disabled, .editor button:disabled { opacity: .6; cursor: wait; }
     .login .state { margin: 0 0 12px; font-size: 16px; }
     .login .error, .editor .error { margin: 12px 0 0; font-size: 15px; color: #ffb4c0; min-height: 1.2em; }
+    .device { margin: 22px 0; padding: 18px; border: 1px solid #c9a650; border-radius: 14px; background: #3a311a44; }
+    .device h2 { margin: 0 0 8px; font-size: 18px; }
+    .device p { margin: 6px 0; font-size: 15px; }
+    .device .status { font-weight: 700; color: #ffe08a; }
     [hidden] { display: none !important; }
   </style>
 </head>
 <body>
   <main>
-    <div class="eyebrow">BYTE BACK · 5단계 자료 요청을 서버 한곳으로</div>
+    <div class="eyebrow">BYTE BACK · 11단계 나만의 접속 앱</div>
     <h1>점령된 자료실</h1>
     <p>아래 기록은 모두 실습을 위해 만든 가상 자료입니다.</p>
     <div class="notice">로그인한 사람만 자료를 볼 수 있고, 로그인해도 내가 쓴 자료만 보입니다. 다른 사람의 자료는 읽거나 고치거나 지울 수 없습니다.</div>
+    <section class="device" id="device" aria-labelledby="device-title">
+      <h2 id="device-title">이 기기 승인 상태</h2>
+      <p class="status" id="device-status">확인 전: 이 기기는 아직 서버의 승인 확인을 받지 않았습니다.</p>
+      <p>앱으로 설치(홈 화면에 추가)해도 기기 확인이 끝난 것은 아닙니다. 승인 여부는 서버와 판정기가 정하며, 이 화면의 표시나 버튼만으로 권한이 생기지 않습니다.</p>
+      <p id="install-mode">열린 방식: 확인 중</p>
+    </section>
     <section class="login" aria-labelledby="login-title">
       <h2 id="login-title">로그인</h2>
       <p class="state" id="login-state">로그인하지 않은 상태입니다.</p>
@@ -324,6 +337,14 @@
         errorText.textContent = '서버에서 로그아웃을 끝내지 못했습니다. 이 기기에서는 로그아웃했습니다.';
       }
     });
+
+    // 11단계 제작 1: 설치형 웹앱으로 열렸는지만 알려 준다. 설치 여부는 기기 승인과 관계가 없다.
+    const standalone = window.matchMedia?.('(display-mode: standalone)').matches || window.navigator.standalone === true;
+    document.querySelector('#install-mode').textContent = standalone
+      ? '열린 방식: 설치한 앱(독립 창). 설치는 기기 승인이 아닙니다.'
+      : '열린 방식: 브라우저. 앱으로 설치해도 기기 승인이 되는 것은 아닙니다.';
+    // 오프라인 안내만 하는 서비스 워커를 등록한다(자료·출입증은 저장하지 않음). 등록에 실패해도 화면은 그대로 쓴다.
+    if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => {});
 
     showSignedIn();
     loadNotes();
