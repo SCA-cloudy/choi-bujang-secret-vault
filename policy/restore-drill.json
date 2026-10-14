@@ -1,0 +1,104 @@
+{
+  "schema": "aleph.restore-drill.v1",
+  "note": "백업에서 실제로 복원되는지 시험한 기록입니다. 새 결과는 runs 끝에 덧붙이고 이전 기록은 지우지 않습니다.",
+  "runs": [
+    {
+      "at": "2026-10-14T00:42:43.170Z",
+      "snapshot": {
+        "version": "safe-9",
+        "sha256": "2756f683cac938e2ab3b7351f0422fe7304b4e17fe87dfa82a9258f29739549e",
+        "commit": "a15d85097db558367140ba95a771ee292c228742"
+      },
+      "ok": true,
+      "passed": 17,
+      "total": 17,
+      "checks": [
+        {
+          "name": "policy_snapshot_verified",
+          "ok": true,
+          "detail": "사본 모양·지문 검증 통과"
+        },
+        {
+          "name": "policy_snapshot_reread",
+          "ok": true,
+          "detail": "다시 읽은 사본의 지문이 처음과 같음"
+        },
+        {
+          "name": "policy_incident_simulated",
+          "ok": true,
+          "detail": "임시 폴더에서 정책 3건을 바꿔 침해를 흉내 냄"
+        },
+        {
+          "name": "policy_preview_before_apply",
+          "ok": true,
+          "detail": "실행 전에 복원할 버전과 바뀔 파일·항목을 보여 주고 아무것도 고치지 않음"
+        },
+        {
+          "name": "policy_wrong_confirm_stops",
+          "ok": true,
+          "detail": "확인 값이 틀리면 멈추고 아무것도 바꾸지 않음"
+        },
+        {
+          "name": "policy_restored_and_reread",
+          "ok": true,
+          "detail": "사본에서 복원한 뒤 다시 읽은 정책이 사본과 같음"
+        },
+        {
+          "name": "policy_other_values_kept",
+          "ok": true,
+          "detail": "정책 밖의 설정 값(step, judgeIssuer)은 그대로"
+        },
+        {
+          "name": "policy_audit_appended",
+          "ok": true,
+          "detail": "복원 감사 기록 한 줄이 덧붙여짐"
+        },
+        {
+          "name": "real_policy_untouched",
+          "ok": true,
+          "detail": "훈련 뒤에도 이 저장소의 실제 정책은 사본과 같고 바뀌지 않음"
+        },
+        {
+          "name": "note_backup_reread_verified",
+          "ok": true,
+          "detail": "메모를 만들 때 생긴 사본을 다시 읽어 ID·소유자·내용 해시가 맞음"
+        },
+        {
+          "name": "note_preview_before_restore",
+          "ok": true,
+          "detail": "복원 전에 복원할 버전(사본 해시)과 바뀔 항목을 보여 주고 아무것도 바꾸지 않음"
+        },
+        {
+          "name": "note_tampered_restored_and_reread",
+          "ok": true,
+          "detail": "변조된 B 메모를 복원한 뒤 다시 읽어 ID·소유자·내용 해시가 사본과 같음"
+        },
+        {
+          "name": "note_other_untouched",
+          "ok": true,
+          "detail": "지정한 한 건 밖의 메모와 사본은 그대로"
+        },
+        {
+          "name": "note_deleted_restored_and_reread",
+          "ok": true,
+          "detail": "지운 B 메모를 같은 ID·소유자·내용으로 되살림"
+        },
+        {
+          "name": "note_other_user_refused",
+          "ok": true,
+          "detail": "남이 B 메모 복원을 요청하면 404, 아무것도 바뀌지 않음"
+        },
+        {
+          "name": "note_corrupt_backup_stops",
+          "ok": true,
+          "detail": "사본 검증에 실패하면 복원하지 않고 409로 멈춤"
+        },
+        {
+          "name": "note_missing_or_anonymous_stops",
+          "ok": true,
+          "detail": "로그인 없으면 401, 사본이 없으면 404로 멈춤"
+        }
+      ]
+    }
+  ]
+}
