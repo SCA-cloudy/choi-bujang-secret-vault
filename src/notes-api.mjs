@@ -236,6 +236,17 @@ export function createSupabaseStore() {
       if (error) fail(error);
       return data;
     },
+    // 12단계: 작전실 요약용 읽기. 로그인한 사용자의 기기와 사본만 읽는다(내용은 서버 안에서 해시 검사에만 쓰고 응답에 넣지 않음).
+    async listDevices(ownerId) {
+      const { data, error } = await (await deviceTable()).select('device_id, status, requested_at, approved_at').eq('owner_id', ownerId).order('requested_at', { ascending: true });
+      if (error) fail(error);
+      return data;
+    },
+    async listBackups(ownerId) {
+      const { data, error } = await (await backupTable()).select('id, owner_id, title, content, content_sha256').eq('owner_id', ownerId).order('saved_at', { ascending: true });
+      if (error) fail(error);
+      return data;
+    },
     // 11단계: 기기 표. 서버는 읽기와 승인 대기 등록만 한다(승인은 SQL Editor에서 학생이 직접).
     async getDevice(deviceId) {
       const { data, error } = await (await deviceTable()).select('device_id, owner_id, public_key, status').eq('device_id', deviceId).maybeSingle();

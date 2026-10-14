@@ -41,6 +41,21 @@
     .device button.secondary { background: #2c4259; color: #ecf4ff; }
     .device button:disabled { opacity: .6; cursor: wait; }
     .device code { font-size: 15px; color: #ffe08a; }
+    .ops { margin: 22px 0; padding: 18px; border: 1px solid #5fa8d3; border-radius: 14px; background: #10263a; }
+    .ops h2 { margin: 0 0 8px; font-size: 18px; }
+    .ops .note { font-size: 14px; color: #bfd0e5; margin: 6px 0 12px; }
+    .ops .grid { display: grid; gap: 10px; }
+    .ops .card { border: 1px solid #36506a; border-radius: 12px; padding: 12px 14px; background: #0f1d2c; }
+    .ops .card h3 { margin: 0 0 6px; font-size: 16px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+    .ops .badge { font-size: 12px; font-weight: 700; padding: 2px 8px; border-radius: 999px; }
+    .ops .badge.live { background: #1f5b45; color: #b9f5da; }
+    .ops .badge.not_run { background: #5a4a1a; color: #ffe08a; }
+    .ops .badge.unavailable { background: #612a35; color: #ffd0d8; }
+    .ops ul { gap: 4px; margin: 6px 0 0; }
+    .ops li { padding: 6px 10px; border-radius: 8px; font-size: 14px; background: #162538; border-color: #2b4157; }
+    .ops .meta { font-size: 13px; color: #9fb4cc; margin-top: 10px; word-break: break-all; }
+    .ops button { padding: 9px 13px; border: 0; border-radius: 10px; background: #5fa8d3; color: #06222a; font-size: 15px; font-weight: 700; cursor: pointer; }
+    .ops button:disabled { opacity: .6; cursor: wait; }
     [hidden] { display: none !important; }
   </style>
 </head>
@@ -85,6 +100,14 @@
       </form>
       <p class="error" id="note-error" role="alert"></p>
     </section>
+    <section class="ops" id="ops" aria-labelledby="ops-title" hidden>
+      <h2 id="ops-title">탈환 작전실</h2>
+      <p class="note">화면 문구는 통과 근거가 아닙니다. 아래 값은 서버(<code>/api/ops</code>)가 이번 요청에서 실제로 확인한 응답 그대로이며, 「실측」과 「미실행」을 나눠 표시합니다. 메모 제목·본문은 보여 주지 않고, 기기·메모 번호는 가립니다.</p>
+      <button id="ops-refresh" type="button">작전실 새로고침</button>
+      <div class="grid" id="ops-grid" aria-live="polite"></div>
+      <p class="meta" id="ops-meta"></p>
+      <p class="error" id="ops-error" role="alert"></p>
+    </section>
     <ul id="notes" aria-live="polite"><li>로그인하면 가상 자료가 보입니다.</li></ul>
   </main>
   <script type="module">
@@ -116,6 +139,11 @@
     const deviceRequest = document.querySelector('#device-request');
     const deviceRefresh = document.querySelector('#device-refresh');
     const deviceError = document.querySelector('#device-error');
+    const opsSection = document.querySelector('#ops');
+    const opsGrid = document.querySelector('#ops-grid');
+    const opsMeta = document.querySelector('#ops-meta');
+    const opsError = document.querySelector('#ops-error');
+    const opsRefresh = document.querySelector('#ops-refresh');
     let session = null;      // 메모리에만 둔다
     let device = null;       // { privateKey(꺼낼 수 없음), publicKey(JWK), deviceId } 메모리에만 둔다
     let deviceState = 'none'; // none(키 없음) | unregistered | pending | approved
@@ -241,7 +269,58 @@
             : deviceState === 'unregistered' ? '미등록: 이 기기는 아직 승인 요청을 하지 않았습니다. 승인 전에는 자료를 표시하지 않습니다.'
               : '확인 전: 이 기기는 아직 서버의 승인 확인을 받지 않았습니다.';
       editor.hidden = !signedIn || deviceState !== 'approved';
+      opsSection.hidden = !signedIn || deviceState !== 'approved';
+      if (opsSection.hidden) { opsGrid.replaceChildren(); opsMeta.textContent = ''; opsError.textContent = ''; }
     }
+
+    // ---------- 12단계 제작 1: 탈환 작전실 ----------
+    const SOURCE_TEXT = { live_virtual: '실측 · 서버가 지금 가상 요청으로 실행', live_db: '실측 · 서버가 지금 DB를 읽음', live_file: '실측 · 서버가 지금 파일을 읽음', not_run: '미실행', unavailable: '읽기 실패' };
+    const badgeClass = source => (source?.startsWith('live') ? 'live' : source === 'not_run' ? 'not_run' : 'unavailable');
+    function el(tag, text, className) {
+      const node = document.createElement(tag);
+      if (text !== undefined) node.textContent = text; // 서버 값은 모두 글자로만 넣는다
+      if (className) node.className = className;
+      return node;
+    }
+    function card(title, source, lines) {
+      const box = el('div', undefined, 'card');
+      const head = el('h3', title);
+      head.append(el('span', SOURCE_TEXT[source] ?? String(source), `badge ${badgeClass(source)}`));
+      const items = el('ul');
+      items.append(...lines.map(line => el('li', line)));
+      box.append(head, items);
+      return box;
+    }
+    function renderOps(data) {
+      const d = data.decider, t = data.detection, r = data.revocation, rec = data.recovery;
+      const cards = [
+        card('판정기 규칙', d.source, [`규칙 ${d.ruleIds.length}개: ${d.ruleIds.join(', ')}`,
+          ...d.probes.map(p => `${p.name}: ${p.decision} (${p.reasonCode}) · 기대 ${p.expected}`)]),
+        card('탐지 사건', t.source, [...t.probes.map(p => `${p.name}: ${p.action}${p.reasonCode ? ` ${p.reasonCode}` : ''}`),
+          `실제 접속 사건: ${SOURCE_TEXT[t.liveEvents.source]} — ${t.liveEvents.reason}`]),
+        r.source === 'live_db'
+          ? card('회수 상태(내 기기)', r.source, [`전체 ${r.total}개 = 승인 ${r.counts.approved} · 대기 ${r.counts.pending} · 회수 ${r.counts.revoked}`,
+            ...r.records.map(x => `기기 ${x.device}: ${x.status}`)])
+          : card('회수 상태(내 기기)', r.source, [`이유: ${r.reason}`]),
+        card('복구 버전', rec.policy.source, [
+          rec.policy.source === 'live_file' ? `정책 사본 ${rec.policy.version} · 지문 ${rec.policy.sha256Prefix} · 원본 커밋 ${rec.policy.sourceCommit}` : `정책 사본: ${SOURCE_TEXT[rec.policy.source]} (${rec.policy.reason})`,
+          rec.drill.source === 'live_file' ? `복원 훈련 기록 ${rec.drill.runs}회 · 마지막 ${rec.drill.lastAt} · ${rec.drill.lastPassed}/${rec.drill.lastTotal} ${rec.drill.lastOk ? '통과' : '실패'}` : `복원 훈련: ${SOURCE_TEXT[rec.drill.source]} (${rec.drill.reason})`,
+          rec.backups.source === 'live_db' ? `내 메모 사본 ${rec.backups.count}개 · 해시가 틀린 사본 ${rec.backups.invalid}개 (${SOURCE_TEXT.live_db})` : `메모 사본: ${SOURCE_TEXT[rec.backups.source]} (${rec.backups.reason})`,
+          ...(rec.backups.records ?? []).map(x => `사본 ${x.note}: ${x.verified ? '해시 일치' : '해시 불일치'}`)]),
+      ];
+      opsGrid.replaceChildren(...cards);
+      opsMeta.textContent = `요청 ID ${data.requestId} · 서버 확인 시각 ${data.checkedAt}`;
+    }
+    async function loadOps() {
+      if (deviceState !== 'approved') return;
+      opsError.textContent = '';
+      opsRefresh.disabled = true;
+      const result = await signedFetch('GET', '/api/ops');
+      opsRefresh.disabled = false;
+      if (result.ok && result.data?.schema === 'aleph.ops.v1') renderOps(result.data);
+      else { opsGrid.replaceChildren(); opsMeta.textContent = ''; opsError.textContent = `작전실 요약을 받지 못했습니다(HTTP ${result.status}). 이 화면에는 받지 못한 값을 지어내 보여 주지 않습니다.`; }
+    }
+    opsRefresh.addEventListener('click', loadOps);
 
     // 서버에 이 기기의 상태를 묻는다. 서버가 approved라고 답할 때만 자료실을 연다.
     async function checkDevice() {
@@ -253,6 +332,7 @@
       else deviceError.textContent = '기기 상태를 확인하지 못했습니다. 잠시 뒤에 다시 확인해 주세요.';
       showDevice();
       loadNotes();
+      loadOps();
     }
 
     deviceRequest.addEventListener('click', async () => {

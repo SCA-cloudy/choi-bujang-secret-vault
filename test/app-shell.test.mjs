@@ -82,3 +82,19 @@ test('오프라인 안내: 네트워크가 되면 페이지 이동은 그대로 
   listeners.fetch({ request: { mode: 'navigate', url: 'https://example.vercel.app/' }, respondWith: value => { result = value; } });
   assert.equal(await result, online);
 });
+
+test('12단계 제작 1 화면: 탈환 작전실은 승인된 기기에서만 서명한 GET /api/ops 응답을 글자로만 보이고, 실측·미실행을 나눈다', async () => {
+  const html = await read('public/index.html');
+  assert.match(html, /<section class="ops" id="ops"[^>]*hidden>/);
+  assert.match(html, /화면 문구는 통과 근거가 아닙니다/);
+  assert.match(html, /opsSection\.hidden = !signedIn \|\| deviceState !== 'approved'/);
+  assert.match(html, /if \(deviceState !== 'approved'\) return;\s*opsError/);
+  assert.match(html, /signedFetch\('GET', '\/api\/ops'\)/);
+  assert.match(html, /not_run: '미실행'/);
+  assert.match(html, /live_db: '실측/);
+  // 서버 값은 textContent로만 넣는다(작전실 코드에 innerHTML 없음)
+  const opsCode = html.slice(html.indexOf('12단계 제작 1: 탈환 작전실'), html.indexOf("opsRefresh.addEventListener"));
+  assert.ok(opsCode.length > 0 && !opsCode.includes('innerHTML'));
+  // 받지 못한 값을 지어내지 않는다
+  assert.match(html, /받지 못한 값을 지어내 보여 주지 않습니다/);
+});
