@@ -1,4 +1,6 @@
 // The student changes this check as each stage adds an attack to the same app.
+// 심판 격리 환경에는 전역 crypto가 없고 node:crypto의 randomUUID·sha256만 쓸 수 있어서, 요청 번호는 이 randomUUID로 만든다.
+import { randomUUID } from 'node:crypto';
 // Never return tokens, private keys, real names, or note bodies.
 function checkedAppUrl(config) {
   let app;
@@ -118,7 +120,7 @@ export async function runAttackChecks(config) {
     const { decide } = await import('./decider.mjs');
     const tryDevice = async (deviceRegistered, method) => {
       const route = method === 'GET' ? 'GET /notes/:id' : `${method} /notes/:id`;
-      const answer = await decide({ requestId: globalThis.crypto.randomUUID(), deviceRegistered, method, route, path: '/notes/demo' });
+      const answer = await decide({ requestId: randomUUID(), deviceRegistered, method, route, path: '/notes/demo' });
       return `${answer.decision} ${answer.reasonCode}`;
     };
     results.push(
@@ -139,7 +141,7 @@ export async function runAttackChecks(config) {
     // 엔진이 실제로 다시 로그인한 시각을 넘겨주는 흐름은 이 저장소에서 확인하지 못해 실제 자료 차단은 점검하지 않는다.
     const tryAccess = async ({ hour, network, count, stepUp }) => {
       const answer = await decide({
-        requestId: globalThis.crypto.randomUUID(), deviceRegistered: true, method: 'GET',
+        requestId: randomUUID(), deviceRegistered: true, method: 'GET',
         route: 'GET /notes/:id', path: '/notes/demo',
         signals: { source: 'judge_fixture', region: 'foreign', network, hour },
         stepUp: stepUp ?? { verified: false, authAgeSeconds: null },
@@ -170,7 +172,7 @@ export async function runAttackChecks(config) {
     const sampleId = '11111111-2222-4333-8444-555555555555';
     const tryZone = async (method, route, path) => {
       const answer = await decide({
-        requestId: globalThis.crypto.randomUUID(), deviceRegistered: true, method, route, path,
+        requestId: randomUUID(), deviceRegistered: true, method, route, path,
         stepUp: { verified: false, authAgeSeconds: null },
       });
       return seenLocal(`${answer.decision} ${answer.reasonCode}`);

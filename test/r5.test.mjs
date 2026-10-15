@@ -452,3 +452,20 @@ test('step 12 attack check keeps 20 records, swaps one overlapping step 7 practi
     globalThis.fetch = originalFetch;
   }
 });
+
+test('step 12 attack check does not need the global crypto (judge isolated environment has none)', async () => {
+  const originalFetch = globalThis.fetch;
+  const descriptor = Object.getOwnPropertyDescriptor(globalThis, 'crypto');
+  try {
+    globalThis.fetch = async url => (String(url).endsWith('/data.json')
+      ? new Response('Not found', { status: 404 })
+      : new Response(JSON.stringify({ error: 'LOGIN_REQUIRED' }), { status: 401, headers: { 'content-type': 'application/json' } }));
+    Object.defineProperty(globalThis, 'crypto', { value: undefined, configurable: true, writable: true });
+    assert.equal(globalThis.crypto, undefined);
+    const results = await runAttackChecks({ ...config, step: 12, originalApiUrl: 'https://example-project.supabase.co/rest/v1/notes' });
+    assert.equal(results.length, 20);
+  } finally {
+    if (descriptor) Object.defineProperty(globalThis, 'crypto', descriptor); else delete globalThis.crypto;
+    globalThis.fetch = originalFetch;
+  }
+});
