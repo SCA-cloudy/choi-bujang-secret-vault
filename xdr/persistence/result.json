@@ -1,0 +1,155 @@
+{
+  "schema": "aleph.xdr.result.v1",
+  "moduleKey": "persistence",
+  "decisions": [
+    {
+      "alertId": "ps-01",
+      "action": "block",
+      "confidence": 0.9,
+      "reason": "unsigned-new-service-registration: 기준 이상의 명확한 공격"
+    },
+    {
+      "alertId": "ps-02",
+      "action": "block",
+      "confidence": 0.9,
+      "reason": "unfamiliar-scheduled-task: 기준 이상의 명확한 공격"
+    },
+    {
+      "alertId": "ps-03",
+      "action": "block",
+      "confidence": 0.9,
+      "reason": "startup-folder-change: 기준 이상의 명확한 공격"
+    },
+    {
+      "alertId": "ps-04",
+      "action": "block",
+      "confidence": 0.92,
+      "reason": "unsigned-new-service-registration: 기준 이상의 명확한 공격"
+    },
+    {
+      "alertId": "ps-05",
+      "action": "block",
+      "confidence": 0.9,
+      "reason": "unfamiliar-scheduled-task: 기준 이상의 명확한 공격"
+    },
+    {
+      "alertId": "ps-06",
+      "action": "block",
+      "confidence": 0.9,
+      "reason": "unsigned-new-service-registration: 기준 이상의 명확한 공격"
+    },
+    {
+      "alertId": "ps-07",
+      "action": "block",
+      "confidence": 0.93,
+      "reason": "startup-folder-change: 기준 이상의 명확한 공격"
+    },
+    {
+      "alertId": "ps-08",
+      "action": "block",
+      "confidence": 0.9,
+      "reason": "unsigned-new-service-registration: 기준 이상의 명확한 공격"
+    },
+    {
+      "alertId": "ps-09",
+      "action": "alert",
+      "confidence": 0.5,
+      "reason": "unfamiliar-scheduled-task: 애매한 시도"
+    },
+    {
+      "alertId": "ps-10",
+      "action": "alert",
+      "confidence": 0.5,
+      "reason": "startup-folder-change: 애매한 시도"
+    },
+    {
+      "alertId": "ps-11",
+      "action": "alert",
+      "confidence": 0.5,
+      "reason": "unsigned-new-service-registration: 애매한 시도"
+    },
+    {
+      "alertId": "ps-12",
+      "action": "alert",
+      "confidence": 0.5,
+      "reason": "unfamiliar-scheduled-task: 애매한 시도"
+    },
+    {
+      "alertId": "ps-13",
+      "action": "alert",
+      "confidence": 0.5,
+      "reason": "unsigned-new-service-registration: 애매한 시도"
+    },
+    {
+      "alertId": "ps-14",
+      "action": "alert",
+      "confidence": 0.5,
+      "reason": "startup-folder-change: 애매한 시도"
+    },
+    {
+      "alertId": "ps-15",
+      "action": "alert",
+      "confidence": 0.5,
+      "reason": "unfamiliar-scheduled-task: 애매한 시도"
+    },
+    {
+      "alertId": "ps-16",
+      "action": "alert",
+      "confidence": 0.5,
+      "reason": "unsigned-new-service-registration: 애매한 시도"
+    },
+    {
+      "alertId": "ps-17",
+      "action": "record",
+      "confidence": 0.1,
+      "reason": "no-pattern: 몰래 심은 프로그램 패턴과 맞지 않는 정상 이벤트"
+    },
+    {
+      "alertId": "ps-18",
+      "action": "record",
+      "confidence": 0.1,
+      "reason": "no-pattern: 몰래 심은 프로그램 패턴과 맞지 않는 정상 이벤트"
+    },
+    {
+      "alertId": "ps-19",
+      "action": "record",
+      "confidence": 0.1,
+      "reason": "no-pattern: 몰래 심은 프로그램 패턴과 맞지 않는 정상 이벤트"
+    },
+    {
+      "alertId": "ps-20",
+      "action": "record",
+      "confidence": 0.1,
+      "reason": "no-pattern: 몰래 심은 프로그램 패턴과 맞지 않는 정상 이벤트"
+    },
+    {
+      "alertId": "ps-21",
+      "action": "record",
+      "confidence": 0.1,
+      "reason": "no-pattern: 몰래 심은 프로그램 패턴과 맞지 않는 정상 이벤트"
+    },
+    {
+      "alertId": "ps-22",
+      "action": "record",
+      "confidence": 0.1,
+      "reason": "no-pattern: 몰래 심은 프로그램 패턴과 맞지 않는 정상 이벤트"
+    },
+    {
+      "alertId": "ps-23",
+      "action": "record",
+      "confidence": 0.1,
+      "reason": "no-pattern: 몰래 심은 프로그램 패턴과 맞지 않는 정상 이벤트"
+    },
+    {
+      "alertId": "ps-24",
+      "action": "record",
+      "confidence": 0.1,
+      "reason": "no-pattern: 몰래 심은 프로그램 패턴과 맞지 않는 정상 이벤트"
+    }
+  ],
+  "counts": {
+    "block": 8,
+    "alert": 8,
+    "record": 8
+  }
+}
