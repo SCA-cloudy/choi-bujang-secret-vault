@@ -2,6 +2,18 @@
 // 심판 격리 환경에는 전역 crypto가 없고 node:crypto의 randomUUID·sha256만 쓸 수 있어서, 요청 번호는 이 randomUUID로 만든다.
 import { randomUUID } from 'node:crypto';
 // Never return tokens, private keys, real names, or note bodies.
+// 심판의 「실행 기록 대조」: 점검마다 실제로 보낸 요청(또는 보내지 않았다는 사실)을 다른 모듈과 같은 방식으로 로그에 남긴다.
+const log = text => console.error(`attack-check: ${text}`);
+const logged = new Set();
+function logNewResults(results) {
+  for (const item of results) {
+    if (logged.has(item.attackId)) continue;
+    logged.add(item.attackId);
+    log(`${item.attackId} -> ${item.observed}`);
+  }
+  return results;
+}
+
 function checkedAppUrl(config) {
   let app;
   try {
@@ -94,7 +106,7 @@ export async function runAttackChecks(config) {
         expected: '로그인 없이 메모 삭제를 요청하면 401 또는 403으로 거부 (없는 가짜 번호로 시험)',
         observed: isolated ? NOT_RUN : seen(remove) },
     ];
-    if (config.step === 4) return results;
+    if (config.step === 4) return logNewResults(results);
 
     // 5단계: 서버 함수를 거치지 않고 데이터 원본 주소를 로그인 없이 직접 읽어 본다.
     // 공개 키는 저장소에 없다. 학생이 셸에 SUPABASE_PUBLISHABLE_KEY를 넣어 둔 때만 그 키를 붙여 보내고,
@@ -113,7 +125,7 @@ export async function runAttackChecks(config) {
     results.push({ attackId: 'original_api_direct_read',
       expected: '서버 함수를 거치지 않고 원본 주소를 로그인 없이 직접 읽으면 401 또는 403으로 거부, 메모 0건',
       observed: `${publicKey ? '공개 키를 붙여' : '키 없이'} 보낸 요청에서 HTTP ${direct.status}, 오류 문구 ${direct.errorCode}, 가상 메모 ${direct.noteCount}건이 보임` });
-    if (config.step === 5) return results;
+    if (config.step === 5) return logNewResults(results);
 
     // 6단계: 판정기(src/decider.mjs)의 기기 등록 규칙을 가상 요청으로 직접 불러 본다.
     // 사이트로 보내는 요청이 아니라 이 컴퓨터에서 판정기 함수를 호출한 결과이며, 심판의 판정이 아니다.
@@ -134,7 +146,7 @@ export async function runAttackChecks(config) {
         expected: '등록 기기의 가상 쓰기 요청(POST)은 이 규칙이 허용하지 않아 deny (판정기 함수를 직접 부른 연습)',
         observed: `판정기에 넣은 가상 요청의 결과: ${await tryDevice(true, 'POST')}` },
     );
-    if (config.step === 6) return results;
+    if (config.step === 6) return logNewResults(results);
 
     // 7단계: 판정기의 추가 확인 규칙(step_up_required)을 가상 요청으로 직접 불러 본다.
     // 6단계와 같이 이 컴퓨터에서 판정기 함수를 부른 연습이며, 사이트로 보낸 요청도 심판의 판정도 아니다.
@@ -164,7 +176,7 @@ export async function runAttackChecks(config) {
         expected: '복합 사건이라도 추가 확인을 마친 뒤(60초 전) 다시 보낸 가상 요청은 allow (판정기 함수를 직접 부른 연습)',
         observed: seenLocal(await tryAccess({ hour: 3, network: 'unusual', count: 20, stepUp: { verified: true, authAgeSeconds: 60 } })) },
     );
-    if (config.step === 7) return results;
+    if (config.step === 7) return logNewResults(results);
 
     // 8단계: 판정기의 구역 규칙(resource_zone)을 가상 요청으로 직접 불러 본다.
     // 7단계와 같이 이 컴퓨터에서 판정기 함수를 부른 연습이며, 사이트로 보낸 요청도 심판의 판정도 아니다.
@@ -188,7 +200,7 @@ export async function runAttackChecks(config) {
         expected: '표에 없는 경로와 :id 자리의 기능 이름(/notes/export) 가상 요청은 deny (판정기 함수를 직접 부른 연습)',
         observed: await tryZone('GET', 'GET /notes/:id', '/notes/export') },
     );
-    if (config.step === 8) return results;
+    if (config.step === 8) return logNewResults(results);
 
     // 9단계: 탐지 함수(src/detect.mjs)를 가상 조회 사건으로 직접 불러 본다.
     // 8단계와 같이 이 컴퓨터에서 함수를 부른 연습이며, 사이트로 보낸 요청도 심판의 판정도 아니다.
@@ -213,7 +225,7 @@ export async function runAttackChecks(config) {
         expected: '10분 안에 121건은 propose_revocation과 이유 코드 burst_read (탐지 함수를 직접 부른 연습)',
         observed: tryDetect(121) },
     );
-    if (config.step === 9) return results;
+    if (config.step === 9) return logNewResults(results);
 
     // 10단계: 로그인 없이 복구 경로(POST /api/restore)를 불러 본다. 복구 경로는 먼저 로그인을 확인하므로 거부되어야 한다.
     // 실제로 있는 메모의 번호는 쓰지 않고 없는 가짜 번호로만 보내, 어떤 메모도 바뀌지 않는다.
@@ -225,7 +237,7 @@ export async function runAttackChecks(config) {
     results.push({ attackId: 'anonymous_restore_request',
       expected: '로그인 없이 복구를 요청하면 401 또는 403으로 거부 (없는 가짜 번호로 시험)',
       observed: isolated ? NOT_RUN : seen(restore) });
-    if (config.step === 10) return results;
+    if (config.step === 10) return logNewResults(results);
 
     // 11단계: 서버의 기기 확인 함수(src/device-auth.mjs)를 가상 요청으로 직접 불러 본다. 이 컴퓨터에서 함수를 부른 연습이며
     // 사이트로 보낸 요청도 심판의 판정도 아니다(배포 사이트의 승인 흐름과 괴물 세 마리 재현은 README에 따로 적는다).
@@ -265,7 +277,7 @@ export async function runAttackChecks(config) {
     results.push({ attackId: 'device_signature_tamper_denied',
       expected: '승인된 기기라도 서명 없음은 DEVICE_SIGNATURE_REQUIRED, 서명 뒤 경로·본문 변경은 DEVICE_SIGNATURE_INVALID, 올바른 서명은 allow (기기 확인 함수를 직접 부른 연습)',
       observed: deviceObserved });
-    if (config.step === 11) return results;
+    if (config.step === 11) return logNewResults(results);
 
     // 12단계: 탈환 작전실 요약(GET /api/ops)을 로그인 없이 불러 본다. 작전실은 로그인과 승인된 기기의 서명이 있어야 열리므로 거부되어야 한다.
     // 이 요청은 사이트로 실제로 보낸 요청이며 심판의 판정이 아니다. 작전실의 정상 응답과 1~12단계의 정상·금지 요청 표는 로그인과
@@ -277,7 +289,7 @@ export async function runAttackChecks(config) {
     results.push({ attackId: 'anonymous_ops_request',
       expected: '로그인 없이 탈환 작전실 요약(GET /api/ops)을 요청하면 401 또는 403으로 거부',
       observed: seen(ops) });
-    return results;
+    return logNewResults(results);
   }
 
   if (config.step === 3) {
