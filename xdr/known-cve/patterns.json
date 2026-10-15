@@ -1,0 +1,41 @@
+{
+  "schema": "aleph.xdr.patterns.v1",
+  "moduleKey": "known-cve",
+  "mitre": { "id": "T1190", "name": "Exploit Public-Facing Application (외부 공개 앱 악용)", "url": "https://attack.mitre.org/techniques/T1190/" },
+  "note": "CVE-2021-44228(Log4Shell) 사고를 본떠 만든 수업용 경보입니다. 실제 공격 문자열은 문서용 표기(${jndi:ldap://...})로만 다루고 다른 시스템에 넣거나 변형하지 않습니다. 세 패턴은 화면이 준 근거(CVE-2021-44228 형태 요청, MITRE ATT&CK T1190)와 신호(요청 머리글·인자 안의 원격 조회 구문, 알려진 취약점 점검 도구의 흔적)만 씁니다.",
+  "patterns": [
+    {
+      "name": "jndi-lookup-in-header",
+      "title": "요청 머리글 안의 원격 조회 구문(jndi 형태)",
+      "mitre": "T1190",
+      "condition": {
+        "summary": "요청 머리글(예: User-Agent)에 ${jndi:...} 형태의 원격 조회 구문이 한 번이라도 있다. 중괄호나 'jndi'라는 글자가 구문 없이 섞인 것은 해당하지 않는다.",
+        "signals": ["요청 머리글 값", "jndi 원격 조회 구문(${jndi:...})"],
+        "clearAt": { "occurrences": 1 }
+      },
+      "evidence": "CVE-2021-44228 Detail(NVD): 아파치 로그4j는 기록되는 문자열에 ${jndi:...} 구문이 있으면 그 주소로 원격 조회를 시도하며, 공격자는 User-Agent 같은 요청 머리글에 이 구문을 심어 서버가 기록하게 만든다."
+    },
+    {
+      "name": "jndi-lookup-in-parameter",
+      "title": "요청 인자 안의 원격 조회 구문(jndi 형태)",
+      "mitre": "T1190",
+      "condition": {
+        "summary": "요청 주소의 인자(예: ?q=, ?next=)에 ${jndi:...} 형태의 원격 조회 구문이 한 번이라도 있다. 'CVE-2021-44228'이나 'jndi' 같은 글자만 있고 구문이 없는 것은 해당하지 않는다.",
+        "signals": ["요청 주소 인자 값", "jndi 원격 조회 구문(${jndi:...})"],
+        "clearAt": { "occurrences": 1 }
+      },
+      "evidence": "CVE-2021-44228 Detail(NVD): 로그4j가 기록하는 입력값(요청 인자 포함)에 ${jndi:...} 구문이 있으면 그 자리에서 원격 조회가 일어나 외부 코드 실행으로 이어질 수 있다."
+    },
+    {
+      "name": "known-vulnerability-scan-trace",
+      "title": "알려진 취약점 점검 도구의 흔적",
+      "mitre": "T1190",
+      "condition": {
+        "summary": "원격 조회 구문은 없지만, 점검 도구 이름과 비슷한 요청 경로나 이 취약점 이름(CVE-2021-44228)에 대한 검색처럼 공개 직후 흔한 사전 탐색 흔적이 있다. 구문 없이 단어가 한 번 스치는 것만으로는 이 신호 하나로 공격 단정은 하지 않는다.",
+        "signals": ["jndi 구문은 없음", "점검 도구와 비슷한 요청 경로", "취약점 이름 검색"],
+        "suspiciousAt": { "occurrences": 1 }
+      },
+      "evidence": "\"악성코드 위험 '아파치 로그4j' 긴급조치\"(경향신문): CVE-2021-44228 공개 직후 전 세계에서 즉시 대규모 악용·점검 시도가 벌어졌다고 보도했으며, 점검 도구 흔적은 이런 사전 탐색 신호에 해당한다."
+    }
+  ]
+}
