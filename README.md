@@ -124,7 +124,7 @@
 | **학생 몫: 접속 앱(화면)** | 로그인, 기기 승인 흐름과 요청 서명, 자료실, 탈환 작전실, 실측 요청 표, 설치형 웹앱 설정 | `public/index.html`, `public/manifest.webmanifest`, `public/icon.svg`, `public/sw.js`, `test/app-shell.test.mjs` |
 | **학생 몫: 자료실(서버와 DB)** | 로그인 서버 함수, 메모 API, 복구 API, 기기 확인, 작전실 요약, DB 권한 설정 | `api/auth/*`, `api/notes.js`, `api/notes/[id].js`, `api/restore.js`, `api/device/*`, `api/ops.js`, `src/auth-api.mjs`, `src/notes-api.mjs`, `src/notes-restore.mjs`, `src/note-backup.mjs`, `src/device-api.mjs`, `src/device-auth.mjs`, `src/ops-api.mjs`, `supabase/002`~`007`, 관련 `test/*` |
 | **학생 몫: 복구 도구** | 정책 사본, 차이 보기, 되돌리기, 사본 검증, 복원 훈련과 기록 | `policy/*`, `src/policy-diff.mjs`, `src/policy-restore.mjs`, `scripts/policy-diff.mjs`, `scripts/policy-restore.mjs`, `scripts/backup-verify.mjs`, `scripts/restore-drill.mjs` |
-| **학생 몫: XDR 보너스** | 무차별 로그인, 웹 입력 주입 | `xdr/brute-force/*`, `xdr/web-injection/*`(나머지 4종은 시작 틀의 연습 경보만 있고 만들지 않음) |
+| **학생 몫: XDR 보너스** | 무차별 로그인, 웹 입력 주입, 알려진 취약점 악용 | `xdr/brute-force/*`, `xdr/web-injection/*`, `xdr/known-cve/*`(나머지 3종은 시작 틀의 연습 경보만 있고 만들지 않음) |
 
 #### 설치
 
@@ -530,6 +530,38 @@ node --input-type=module -e "import {randomUUID} from 'node:crypto';import {fixt
 | 로그인 변경 뒤 B의 로그인·거부 시험 | 서버 로그인으로 B 로그인, B의 거부 시험 | 미실행 |
 | `npm run bundle`의 5단계 자기 점검 | 학생 PC에서 실행한 뒤 기록 | 미실행 |
 | 심판 판정 | 제출 전 | 미실행 |
+
+## 보너스 XDR-03 현재 상태 (알려진 취약점 악용, 2026-10-15)
+
+연습용 Wazuh 경보 24건(`xdr/fixtures/known-cve.json`, 고치지 않음)을 읽어 경보마다 `block`·`alert`·`record` 중 하나로 가르는 모듈입니다. 실제 사고(CVE-2021-44228, Log4Shell)를 본떠 만들었고, 공격 구문은 문서용 표기(`${jndi:ldap://...}`)로만 다루며 다른 시스템에 넣거나 변형하지 않습니다. 5단계 자료실 코드(`api`, `public`, `src`)는 이번 보너스에서 바뀌지 않았습니다.
+
+| 파일 | 하는 일 |
+|---|---|
+| `xdr/known-cve/read-alerts.mjs` | 경보에서 시각·출발 주소·계정·규칙 수준·설명만 뽑음. 원격 조회 구문이 들어갈 수 있는 요청 주소(url)·사용자 에이전트(useragent)는 뽑지 않고, 비밀값처럼 보이는 값은 `[가림]`. 확인용이라 `decide.mjs`가 불러오지 않음 |
+| `xdr/known-cve/patterns.json` | 패턴 3개(요청 머리글 안의 jndi 원격 조회 구문, 요청 인자 안의 jndi 원격 조회 구문, 알려진 취약점 점검 도구의 흔적)와 MITRE T1190·NVD CVE-2021-44228·경향신문 기사 근거 |
+| `xdr/known-cve/decide.mjs` | 패턴을 맨 위 상수로 옮겨 적고 혼자 계산해 `{ action, confidence, reason }` 반환. import·파일·네트워크 없음. 0.85 이상 `block`, 0.5 이상 `alert`, 그 아래 `record` |
+| `xdr/known-cve/respond.mjs` | `block` 주소만 만료 시각·근거 경보 번호가 붙은 거부 규칙으로 만들고, `block`·`alert`를 `xdr/alerts.log`에 한 줄씩 씀. 계정은 막지 않고, 정상 이벤트와 같은 주소는 규칙에서 뺌 |
+| `xdr/known-cve/result.json` | `npm run xdr:run -- known-cve`가 만드는 결과 |
+
+**다시 실행하는 방법** (저장소 루트에서)
+
+```
+npm run xdr:run -- known-cve
+node xdr/known-cve/respond.mjs
+```
+
+첫 줄은 `result.json`을 새로 만들고, 둘째 줄은 규칙·알림 로그(`xdr/alerts.log`, Git에 올리지 않음)와 막힘·통과 건수를 보여 줍니다.
+
+| 확인한 것 | 결과 | 상태 |
+|---|---|---|
+| `result.json`의 `counts` | `block` 8, `alert` 8, `record` 8 (경보 24건) | 실행함 |
+| 정상 이벤트(로그인·메모 조회 등 8건)를 `block` 한 경우 | 0건 | 실행함 |
+| `decide.mjs`에 `import` 문이 있는지 | 없음 | 실행함 (직접 `grep`) |
+| 시험 경보를 흘렸을 때 | 명확한 공격(jndi 구문이 실제로 있는 경보) 8건 중 8건 막힘(거부 규칙 7개, 두 건이 같은 주소), 알림·정상 16건 중 16건 통과 | 실행함 (`respond.mjs` 안의 연습) |
+| 심판 판정 | 제출 전 | 미실행 |
+| 판정기(`src/decider.mjs`)와의 연결 | 연결하지 않음. 요청 계약에 출발 주소가 없어 거부 규칙을 맞춰 볼 수 없으므로 규칙 목록과 `isDenied()`까지만 만듦. 판정기 기존 규칙은 이번 보너스에서 고치지 않음 | 미연결 |
+
+`block`·`alert`·`record`의 기대 답은 경보 설명(jndi 구문이 실제로 있는지, 흔적만 있는지, 정상 사용인지)을 보고 직접 정한 것이며 심판의 정답이 아닙니다. 위 시험은 연습이고 실제 접속 차단의 증거가 아닙니다. `xdr/web-injection/read-alerts.mjs`에서 그대로 가져온 `maskSecrets` 함수에 `"이름: Bearer 토큰"`처럼 복합된 문자열을 완전히 가리지 못하는 경계 결함이 있다는 것을 직접 시험해 확인했습니다. 이 경보가 뽑는 다섯 값(시각·출발 주소·계정·수준·설명)에는 그런 형태의 문자열이 없어 지금은 드러나는 비밀값이 없지만, 고치지 않고 남겨 둔 채로 넘어갑니다.
 
 ## 보너스 XDR-02 현재 상태 (웹 입력 조작·주입 공격, 2026-10-08)
 
