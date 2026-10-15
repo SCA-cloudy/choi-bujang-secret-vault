@@ -1,0 +1,41 @@
+{
+  "schema": "aleph.xdr.patterns.v1",
+  "moduleKey": "privilege",
+  "mitre": [
+    { "id": "T1068", "name": "Exploitation for Privilege Escalation (권한 상승 악용)", "url": "https://attack.mitre.org/techniques/T1068/" },
+    { "id": "T1078", "name": "Valid Accounts (정상 계정 도용)", "url": "https://attack.mitre.org/techniques/T1078/" }
+  ],
+  "note": "2024년 마이크로소프트 미드나이트 블리자드 공격(테스트 계정이 경영진 메일함까지 이어진 사고)을 본떠 만든 수업용 경보입니다. 실제 계정·그룹 이름은 문서용 표기만 씁니다. 세 패턴은 화면이 준 근거(MITRE T1068, T1078)와 신호(관리자 그룹 추가, 처음 보는 관리자 명령, 업무 시간 밖 권한 사용)만 씁니다.",
+  "patterns": [
+    {
+      "name": "admin-group-addition",
+      "title": "평범한 계정의 관리자 그룹 추가",
+      "mitre": "T1078",
+      "condition": {
+        "summary": "평범한 계정이 관리자 그룹에 새로 들어가고, 곧바로 또는 같은 흐름에서 관리자 명령이 이어진다. 그룹 설명만 바뀌거나 과제 그룹처럼 관리자가 아닌 그룹에 추가되는 것은 해당하지 않는다.",
+        "signals": ["관리자 그룹 추가", "평범한 계정", "추가 직후 관리자 명령"]
+      },
+      "evidence": "Microsoft Security Blog(\"Midnight Blizzard: Guidance for responders on nation-state attack\"): 공격자는 2단계 인증 없는 오래된 테스트 계정을 뚫은 뒤, 회사 환경에 남아 있던 OAuth 앱의 높은 권한을 장악해 관리자급 접근을 얻었다 — MITRE ATT&CK T1078(Valid Accounts)."
+    },
+    {
+      "name": "unfamiliar-admin-command",
+      "title": "처음 보는 주소·계정의 관리자 명령",
+      "mitre": "T1068",
+      "condition": {
+        "summary": "방금 권한이 바뀌었거나 평소 쓰지 않던 주소·계정에서 관리자 명령이 실행된다. 평소 주소에서 실행된 관리자 명령 한 건은 해당하지 않는다.",
+        "signals": ["처음 보는 관리자 명령", "방금 바뀐 권한", "낯선 주소·계정"]
+      },
+      "evidence": "머니S(\"마이크로소프트 고위 직원, 러시아 단체로부터 이메일 해킹...담당 직원 계좌 등 포함\"): 공격자는 장악한 권한으로 새 앱을 만들어 Exchange Online 메일에 접근하는 등, 평소 쓰지 않던 권한을 곧바로 행사했다 — MITRE ATT&CK T1068(Exploitation for Privilege Escalation)."
+    },
+    {
+      "name": "after-hours-privilege-use",
+      "title": "업무 시간 밖 권한 사용",
+      "mitre": "T1078",
+      "condition": {
+        "summary": "업무처럼 보이지 않는 시각에 권한 상승과 관리자 명령이 함께 일어난다. 수업(업무) 시간 안에서 뜨고 취소된 상승 창 하나는 해당하지 않는다.",
+        "signals": ["업무 시간 밖 권한 사용", "권한 상승과 명령이 함께 발생"]
+      },
+      "evidence": "Microsoft Security Blog(\"Midnight Blizzard: Guidance for responders on nation-state attack\"): 공격자는 평소 쓰지 않는 오래된 테스트 계정을 평소와 다른 흐름으로 움직여 들키지 않고 오래 머물렀다 — MITRE ATT&CK T1078(Valid Accounts)."
+    }
+  ]
+}
