@@ -1,0 +1,41 @@
+{
+  "schema": "aleph.xdr.patterns.v1",
+  "moduleKey": "persistence",
+  "mitre": [
+    { "id": "T1543", "name": "Create or Modify System Process (시스템 프로세스 생성·변경)", "url": "https://attack.mitre.org/techniques/T1543/" },
+    { "id": "T1053", "name": "Scheduled Task/Job (예약 작업)", "url": "https://attack.mitre.org/techniques/T1053/" }
+  ],
+  "note": "2020년 솔라윈즈/오리온 공급망 공격(선버스트 백도어) 사고를 본떠 만든 수업용 경보입니다. 실제 경로·파일 이름은 문서용 표기(예: helper.exe)로만 다룹니다. 세 패턴은 화면이 준 근거(MITRE T1543, T1053)와 신호(서명 없는 새 서비스 등록, 낯선 예약 작업, 시작 폴더 변경)만 씁니다.",
+  "patterns": [
+    {
+      "name": "unsigned-new-service-registration",
+      "title": "서명 없는 새 서비스 등록",
+      "mitre": "T1543",
+      "condition": {
+        "summary": "평소 목록에 없던 서비스가 서명 없이 새로 등록되고, 임시 폴더 같은 낯선 위치의 실행 파일을 가리킨다. 기존 서비스의 설명만 바뀌는 것은 해당하지 않는다.",
+        "signals": ["서명 없는 새 서비스 등록", "낯선 위치(임시 폴더 등)의 실행 파일", "평소 목록에 없음"]
+      },
+      "evidence": "Mandiant(\"Highly Evasive Attacker Leverages SolarWinds Supply Chain to Compromise Multiple Global Victims With SUNBURST Backdoor\"): SUNBURST는 정상 서명된 오리온 업데이트에 실려 들어온 뒤 별도의 악성 서비스로 오래 머물렀다 — MITRE ATT&CK T1543(Create or Modify System Process)."
+    },
+    {
+      "name": "unfamiliar-scheduled-task",
+      "title": "낯선 예약 작업",
+      "mitre": "T1053",
+      "condition": {
+        "summary": "처음 보는 예약 작업이 수업 시간 밖에, 또는 임의 문자열에 가까운 이름으로 임시 폴더의 프로그램을 실행한다. 수업 중 평범하게 만든 예약 작업 하나는 해당하지 않는다.",
+        "signals": ["처음 보는 예약 작업", "수업 시간 밖 실행", "임시 폴더 프로그램 실행"]
+      },
+      "evidence": "전자신문(\"솔라윈즈 백도어에 MS도 당했다...MS '글로벌 보안 대응 촉구'\"): 공격자는 예약 작업을 잠깐 바꿨다 되돌리는 식으로 명령을 받고 오래 머물렀다고 보도 — MITRE ATT&CK T1053(Scheduled Task/Job)."
+    },
+    {
+      "name": "startup-folder-change",
+      "title": "시작 폴더(자동 실행 목록) 변경",
+      "mitre": "T1543",
+      "condition": {
+        "summary": "시작 폴더 또는 시작 프로그램 목록에 평소 없던 항목이 새로 추가된다. 시작 프로그램 목록을 읽기만 한 것은 해당하지 않는다.",
+        "signals": ["시작 폴더 변경", "평소 목록에 없는 항목 추가"]
+      },
+      "evidence": "Mandiant 보고서: 공격자는 정상 소프트웨어처럼 보이는 자동 실행 경로에 심어 다시 켜도 살아남으려 했다 — MITRE ATT&CK T1543(Create or Modify System Process)이 다루는 자동 실행 메커니즘 변경에 해당."
+    }
+  ]
+}
