@@ -1,0 +1,41 @@
+{
+  "schema": "aleph.xdr.patterns.v1",
+  "moduleKey": "exfiltration",
+  "mitre": [
+    { "id": "T1041", "name": "Exfiltration Over C2 Channel (명령 통로로 유출)", "url": "https://attack.mitre.org/techniques/T1041/" },
+    { "id": "T1048", "name": "Exfiltration Over Alternative Protocol (다른 프로토콜로 유출)", "url": "https://attack.mitre.org/techniques/T1048/" }
+  ],
+  "note": "2014년 카드 3사(KB국민카드·롯데카드·NH농협카드) 개인신용정보 1억 400만여 건 유출 사고를 본떠 만든 수업용 경보입니다. 실제 계정·주소 이름은 문서용 표기만 씁니다. 세 패턴은 화면이 준 근거(MITRE T1041, T1048)와 신호(처음 보는 목적지로 대용량 전송, 업무 시간 밖 압축 파일 반출)만 씁니다.",
+  "patterns": [
+    {
+      "name": "unfamiliar-destination-bulk-transfer",
+      "title": "처음 보는 목적지로 대용량 전송",
+      "mitre": "T1048",
+      "condition": {
+        "summary": "처음 보는 목적지로 한 번에 대용량 자료나 많은 파일 수가 나간다. 평소 쓰던 목적지로 보통 크기의 자료가 나간 것은 해당하지 않는다.",
+        "signals": ["처음 보는 목적지", "대용량 전송", "많은 파일 수"]
+      },
+      "evidence": "서울신문(\"카드사 고객정보 1억400만건 유출...사상최대\"): 카드사 시스템 구축을 맡아 파견된 차장은 처음 보는 외부 경로로 KB국민카드 5,300만 건 등 1억 400만여 건의 고객정보를 옮겨 유출했다 — MITRE ATT&CK T1048(Exfiltration Over Alternative Protocol)."
+    },
+    {
+      "name": "after-hours-archive-exfil",
+      "title": "업무 시간 밖 압축 파일 반출",
+      "mitre": "T1048",
+      "condition": {
+        "summary": "업무처럼 보이지 않는 시각(수업 시간 밖)에 압축 파일이 외부로 나간다. 압축만 만들고 외부 전송은 아직 없는 경우는 해당하지 않는다.",
+        "signals": ["업무 시간 밖", "압축 파일 반출"]
+      },
+      "evidence": "한국일보(\"카드사 보안망 뻥... 고객 정보 1억건 털렸다\"): 파견 근무자는 2012년 10월부터 2013년 12월까지 업무 시간 안팎을 가리지 않고 고객정보를 압축해 USB로 옮겨 반출했다 — MITRE ATT&CK T1048(Exfiltration Over Alternative Protocol)."
+    },
+    {
+      "name": "repeated-destination-transfer",
+      "title": "같은 목적지로 반복되는 전송",
+      "mitre": "T1041",
+      "condition": {
+        "summary": "같은 목적지나 통로로 전송이 여러 번(반복 횟수 많음) 이어진다. 전송량이 한 번만 높아졌거나 목적지가 바뀌며 한 번만 일어난 것은 해당하지 않는다.",
+        "signals": ["같은 목적지 반복 전송", "명령 통로를 통한 반복 전송"]
+      },
+      "evidence": "서울신문(\"카드사 고객정보 1억400만건 유출...사상최대\"): 유출은 한 번이 아니라 2012년 10월부터 2013년 12월까지 반복된 작업으로 이뤄져, 같은 통로로 대량의 자료가 여러 차례 옮겨졌다 — MITRE ATT&CK T1041(Exfiltration Over C2 Channel)."
+    }
+  ]
+}
