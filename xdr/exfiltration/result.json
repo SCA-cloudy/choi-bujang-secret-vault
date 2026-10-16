@@ -1,0 +1,191 @@
+{
+  "schema": "aleph.xdr.result.v1",
+  "moduleKey": "exfiltration",
+  "decisions": [
+    {
+      "alertId": "ex-01",
+      "action": "block",
+      "confidence": 0.9,
+      "reason": "unfamiliar-destination-bulk-transfer: 기준 이상의 명확한 공격"
+    },
+    {
+      "alertId": "ex-02",
+      "action": "block",
+      "confidence": 0.9,
+      "reason": "after-hours-archive-exfil: 기준 이상의 명확한 공격"
+    },
+    {
+      "alertId": "ex-03",
+      "action": "block",
+      "confidence": 0.97,
+      "reason": "repeated-destination-transfer: 기준 이상의 명확한 공격"
+    },
+    {
+      "alertId": "ex-04",
+      "action": "block",
+      "confidence": 0.9,
+      "reason": "repeated-destination-transfer: 기준 이상의 명확한 공격"
+    },
+    {
+      "alertId": "ex-05",
+      "action": "block",
+      "confidence": 0.9,
+      "reason": "unfamiliar-destination-bulk-transfer: 기준 이상의 명확한 공격"
+    },
+    {
+      "alertId": "ex-06",
+      "action": "block",
+      "confidence": 0.99,
+      "reason": "repeated-destination-transfer: 기준 이상의 명확한 공격"
+    },
+    {
+      "alertId": "ex-07",
+      "action": "block",
+      "confidence": 0.9,
+      "reason": "repeated-destination-transfer: 기준 이상의 명확한 공격"
+    },
+    {
+      "alertId": "ex-08",
+      "action": "block",
+      "confidence": 0.9,
+      "reason": "unfamiliar-destination-bulk-transfer: 기준 이상의 명확한 공격"
+    },
+    {
+      "alertId": "ex-09",
+      "action": "block",
+      "confidence": 0.98,
+      "reason": "repeated-destination-transfer: 기준 이상의 명확한 공격"
+    },
+    {
+      "alertId": "ex-10",
+      "action": "block",
+      "confidence": 0.9,
+      "reason": "unfamiliar-destination-bulk-transfer: 기준 이상의 명확한 공격"
+    },
+    {
+      "alertId": "ex-11",
+      "action": "alert",
+      "confidence": 0.5,
+      "reason": "unfamiliar-destination-bulk-transfer: 애매한 시도"
+    },
+    {
+      "alertId": "ex-12",
+      "action": "alert",
+      "confidence": 0.5,
+      "reason": "unfamiliar-destination-bulk-transfer: 애매한 시도"
+    },
+    {
+      "alertId": "ex-13",
+      "action": "alert",
+      "confidence": 0.5,
+      "reason": "unfamiliar-destination-bulk-transfer: 애매한 시도"
+    },
+    {
+      "alertId": "ex-14",
+      "action": "alert",
+      "confidence": 0.5,
+      "reason": "unfamiliar-destination-bulk-transfer: 애매한 시도"
+    },
+    {
+      "alertId": "ex-15",
+      "action": "alert",
+      "confidence": 0.5,
+      "reason": "unfamiliar-destination-bulk-transfer: 애매한 시도"
+    },
+    {
+      "alertId": "ex-16",
+      "action": "alert",
+      "confidence": 0.5,
+      "reason": "unfamiliar-destination-bulk-transfer: 애매한 시도"
+    },
+    {
+      "alertId": "ex-17",
+      "action": "alert",
+      "confidence": 0.5,
+      "reason": "unfamiliar-destination-bulk-transfer: 애매한 시도"
+    },
+    {
+      "alertId": "ex-18",
+      "action": "alert",
+      "confidence": 0.5,
+      "reason": "unfamiliar-destination-bulk-transfer: 애매한 시도"
+    },
+    {
+      "alertId": "ex-19",
+      "action": "alert",
+      "confidence": 0.6,
+      "reason": "repeated-destination-transfer: 애매한 시도"
+    },
+    {
+      "alertId": "ex-20",
+      "action": "alert",
+      "confidence": 0.5,
+      "reason": "unfamiliar-destination-bulk-transfer: 애매한 시도"
+    },
+    {
+      "alertId": "ex-21",
+      "action": "record",
+      "confidence": 0.1,
+      "reason": "no-pattern: 자료 빼돌리기 패턴과 맞지 않는 정상 이벤트"
+    },
+    {
+      "alertId": "ex-22",
+      "action": "record",
+      "confidence": 0.1,
+      "reason": "no-pattern: 자료 빼돌리기 패턴과 맞지 않는 정상 이벤트"
+    },
+    {
+      "alertId": "ex-23",
+      "action": "record",
+      "confidence": 0.1,
+      "reason": "no-pattern: 자료 빼돌리기 패턴과 맞지 않는 정상 이벤트"
+    },
+    {
+      "alertId": "ex-24",
+      "action": "record",
+      "confidence": 0.1,
+      "reason": "no-pattern: 자료 빼돌리기 패턴과 맞지 않는 정상 이벤트"
+    },
+    {
+      "alertId": "ex-25",
+      "action": "record",
+      "confidence": 0.1,
+      "reason": "no-pattern: 자료 빼돌리기 패턴과 맞지 않는 정상 이벤트"
+    },
+    {
+      "alertId": "ex-26",
+      "action": "record",
+      "confidence": 0.1,
+      "reason": "no-pattern: 자료 빼돌리기 패턴과 맞지 않는 정상 이벤트"
+    },
+    {
+      "alertId": "ex-27",
+      "action": "record",
+      "confidence": 0.1,
+      "reason": "no-pattern: 자료 빼돌리기 패턴과 맞지 않는 정상 이벤트"
+    },
+    {
+      "alertId": "ex-28",
+      "action": "record",
+      "confidence": 0.1,
+      "reason": "no-pattern: 자료 빼돌리기 패턴과 맞지 않는 정상 이벤트"
+    },
+    {
+      "alertId": "ex-29",
+      "action": "record",
+      "confidence": 0.1,
+      "reason": "no-pattern: 자료 빼돌리기 패턴과 맞지 않는 정상 이벤트"
+    },
+    {
+      "alertId": "ex-30",
+      "action": "record",
+      "confidence": 0.1,
+      "reason": "no-pattern: 자료 빼돌리기 패턴과 맞지 않는 정상 이벤트"
+    }
+  ],
+  "counts": {
+    "block": 10,
+    "alert": 10,
+    "record": 10
+  }
+}
