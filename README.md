@@ -124,7 +124,7 @@
 | **학생 몫: 접속 앱(화면)** | 로그인, 기기 승인 흐름과 요청 서명, 자료실, 탈환 작전실, 실측 요청 표, 설치형 웹앱 설정 | `public/index.html`, `public/manifest.webmanifest`, `public/icon.svg`, `public/sw.js`, `test/app-shell.test.mjs` |
 | **학생 몫: 자료실(서버와 DB)** | 로그인 서버 함수, 메모 API, 복구 API, 기기 확인, 작전실 요약, DB 권한 설정 | `api/auth/*`, `api/notes.js`, `api/notes/[id].js`, `api/restore.js`, `api/device/*`, `api/ops.js`, `src/auth-api.mjs`, `src/notes-api.mjs`, `src/notes-restore.mjs`, `src/note-backup.mjs`, `src/device-api.mjs`, `src/device-auth.mjs`, `src/ops-api.mjs`, `supabase/002`~`007`, 관련 `test/*` |
 | **학생 몫: 복구 도구** | 정책 사본, 차이 보기, 되돌리기, 사본 검증, 복원 훈련과 기록 | `policy/*`, `src/policy-diff.mjs`, `src/policy-restore.mjs`, `scripts/policy-diff.mjs`, `scripts/policy-restore.mjs`, `scripts/backup-verify.mjs`, `scripts/restore-drill.mjs` |
-| **학생 몫: XDR 보너스** | 무차별 로그인, 웹 입력 주입, 알려진 취약점 악용, 몰래 심어진 프로그램, 권한 가로채기 | `xdr/brute-force/*`, `xdr/web-injection/*`, `xdr/known-cve/*`, `xdr/persistence/*`, `xdr/privilege/*`(나머지 1종은 시작 틀의 연습 경보만 있고 만들지 않음) |
+| **학생 몫: XDR 보너스** | 무차별 로그인, 웹 입력 주입, 알려진 취약점 악용, 몰래 심어진 프로그램, 권한 가로채기, 자료 빼돌리기 | `xdr/brute-force/*`, `xdr/web-injection/*`, `xdr/known-cve/*`, `xdr/persistence/*`, `xdr/privilege/*`, `xdr/exfiltration/*` |
 
 #### 설치
 
@@ -530,6 +530,39 @@ node --input-type=module -e "import {randomUUID} from 'node:crypto';import {fixt
 | 로그인 변경 뒤 B의 로그인·거부 시험 | 서버 로그인으로 B 로그인, B의 거부 시험 | 미실행 |
 | `npm run bundle`의 5단계 자기 점검 | 학생 PC에서 실행한 뒤 기록 | 미실행 |
 | 심판 판정 | 제출 전 | 미실행 |
+
+## 보너스 XDR-06 현재 상태 (자료 빼돌리기, 2026-10-16 저장점)
+
+연습용 Wazuh 경보 30건(`xdr/fixtures/exfiltration.json`, 고치지 않음)을 읽어 경보마다 `block`·`alert`·`record` 중 하나로 가르는 모듈입니다. 실제 사고(2014년 카드 3사 KB국민카드·롯데카드·NH농협카드 개인신용정보 1억 400만여 건 유출 사건)를 본떠 만들었고, 계정·주소 이름은 문서용 표기로만 다룹니다. 5단계 자료실 코드(`api`, `public`, `src`)와 판정기(`src/decider.mjs`)는 이번 보너스에서 바뀌지 않았습니다.
+
+| 파일 | 하는 일 |
+|---|---|
+| `xdr/exfiltration/read-alerts.mjs` | 경보에서 시각·출발 주소·계정·규칙 수준·설명만 뽑음. 비밀값처럼 보이는 값은 `[가림]`. 확인용이라 `decide.mjs`가 불러오지 않음 |
+| `xdr/exfiltration/patterns.json` | 패턴 3개(처음 보는 목적지로 대용량 전송, 업무 시간 밖 압축 파일 반출, 같은 목적지로 반복되는 전송)와 MITRE T1041·T1048·서울신문·한국일보 기사 근거 |
+| `xdr/exfiltration/decide.mjs` | 패턴을 맨 위 상수로 옮겨 적고 혼자 계산해 `{ action, confidence, reason }` 반환. import·파일·네트워크 없음. 0.85 이상 `block`, 0.5 이상 `alert`, 그 아래 `record`. "외부 전송은 아직 없음"·"실패로 끝남"·"평소 목적지"처럼 끝나지 않았거나 평소 범위인 시도와, 뚜렷하게 이어진 전송을 구분함. mitre 꼬리표가 붙었어도 뜻이 뚜렷하게 정상인 경보(수업 자료 주소로의 작은 동기화)는 정상으로 둠 |
+| `xdr/exfiltration/respond.mjs` | `block` 주소만 만료 시각·근거 경보 번호가 붙은 거부 규칙으로 만들고, `block`·`alert`를 `xdr/alerts.log`에 한 줄씩 씀. 계정은 막지 않고, 정상 이벤트와 같은 주소는 규칙에서 뺌 |
+| `xdr/exfiltration/result.json` | `npm run xdr:run -- exfiltration`이 만드는 결과 |
+
+**다시 실행하는 방법** (저장소 루트에서)
+
+```
+npm run xdr:run -- exfiltration
+node xdr/exfiltration/respond.mjs
+```
+
+첫 줄은 `result.json`을 새로 만들고, 둘째 줄은 규칙·알림 로그(`xdr/alerts.log`, Git에 올리지 않음)와 막힘·통과 건수를 보여 줍니다.
+
+| 확인한 것 | 결과 | 상태 |
+|---|---|---|
+| `result.json`의 `counts` | `block` 10, `alert` 10, `record` 10 (경보 30건) | 실행함 |
+| 정상 이벤트(메모·공지 읽기, 로그아웃 등 10건)를 `block` 한 경우 | 0건 | 실행함 |
+| `decide.mjs`에 `import` 문이 있는지 | 없음 | 실행함 (직접 `grep`) |
+| 시험 경보를 흘렸을 때 | 명확한 공격 10건 중 10건 막힘(거부 규칙 9개, 두 건이 같은 주소), 알림·정상 20건 중 20건 통과 | 실행함 (`respond.mjs` 안의 연습) |
+| 판단 낱말이 경보 단위로도 맞는지(수준만 보고 우연히 맞은 게 아닌지) | strong·normal 낱말 일치 여부를 경보 30건 각각 직접 대조, 어긋남 없음 | 실행함 (제출 전 재점검) |
+| 판정기(`src/decider.mjs`)와의 연결 | 연결하지 않음. 요청 계약에 출발 주소가 없어 거부 규칙을 맞춰 볼 수 없으므로 규칙 목록과 `isDenied()`까지만 만듦. 판정기 기존 규칙은 이번 보너스에서 고치지 않음 | 미연결 |
+| 심판 판정 | 제출 전 | 미실행 |
+
+`block`·`alert`·`record`의 기대 답은 경보 설명(대용량·반복·처음 보는 목적지가 뚜렷하게 이어졌는지, 아직 전송 전이거나 실패·평소 범위로 끝났는지, 정상 사용인지)을 보고 직접 정한 것이며 심판의 정답이 아닙니다. 위 시험은 연습이고 실제 접속 차단의 증거가 아닙니다. `read-alerts.mjs`의 `maskSecrets` 함수는 XDR-03에서 발견해 보고했던 것과 같은 "이름: Bearer 토큰"류 복합 문자열을 완전히 가리지 못하는 경계 결함을 그대로 가지고 있습니다(학생 결정으로 그때 넘어감). 이번 경보가 뽑는 다섯 값(시각·출발 주소·계정·수준·설명)에는 그런 형태의 문자열이 없어 지금은 드러나는 비밀값이 없습니다.
 
 ## 보너스 XDR-05 현재 상태 (권한 가로채기, 2026-10-15)
 
